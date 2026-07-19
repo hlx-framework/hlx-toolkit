@@ -1,0 +1,139 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HLX.App.ViewModels.Detail"
+             x:Class="HLX.App.Views.Detail.FunctionDetailView"
+             x:DataType="vm:FunctionDetailViewModel">
+
+    <StackPanel Spacing="10">
+
+        <!-- Header -->
+        <StackPanel Spacing="2">
+            <TextBlock Text="{Binding FunctionName}" FontSize="16" FontWeight="Bold"
+                       FontFamily="Consolas,Courier New,monospace" />
+            <TextBlock Text="{Binding Signature}" FontFamily="Consolas,Courier New,monospace"
+                       Opacity="0.7" />
+            <TextBlock Text="{Binding SourceFile}" IsVisible="{Binding SourceFile, Converter={x:Static ObjectConverters.IsNotNull}}"
+                       Opacity="0.5" FontSize="11" />
+        </StackPanel>
+
+        <!-- Registers -->
+        <StackPanel Spacing="3">
+            <TextBlock Text="{Binding Registers.Count, StringFormat='Registers ({0})'}"
+                       FontWeight="SemiBold" />
+            <ItemsControl ItemsSource="{Binding Registers}" Margin="12,0,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:RegisterViewModel}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding Index}" FontFamily="Consolas,Courier New,monospace"
+                                       MinWidth="40" Opacity="0.6" />
+                            <TextBlock Text="{Binding TypeName}" FontFamily="Consolas,Courier New,monospace" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <!-- Instructions / Pseudocode toggle -->
+        <StackPanel Spacing="3">
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Text="{Binding Instructions.Count, StringFormat='Instructions ({0})'}"
+                           FontWeight="SemiBold" VerticalAlignment="Center" />
+                <ToggleButton IsChecked="{Binding ShowPseudocode}"
+                              Content="Pseudocode" Padding="6,2" FontSize="11"
+                              ToolTip.Tip="Toggle structured Haxe pseudocode view" />
+            </StackPanel>
+
+            <!-- Bytecode view -->
+            <ItemsControl IsVisible="{Binding !ShowPseudocode}"
+                          ItemsSource="{Binding Instructions}" Margin="4,0,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:InstructionLineViewModel}">
+                        <StackPanel Spacing="0" Margin="0,0">
+                            <!-- Jump target label -->
+                            <TextBlock Text="{Binding Label}"
+                                       IsVisible="{Binding HasLabel}"
+                                       FontFamily="Consolas,Courier New,monospace"
+                                       Foreground="#C586C0" FontSize="11" Margin="0,2,0,0" />
+                            <!-- Instruction line -->
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="{Binding Offset}"
+                                           FontFamily="Consolas,Courier New,monospace"
+                                           Opacity="0.45" MinWidth="50" />
+                                <TextBlock Text="{Binding Mnemonic}"
+                                           FontFamily="Consolas,Courier New,monospace"
+                                           Foreground="#569CD6" MinWidth="120" />
+                                <!-- Operand parts (mix of text and links) -->
+                                <ItemsControl ItemsSource="{Binding Parts}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <StackPanel Orientation="Horizontal" />
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.DataTemplates>
+                                        <DataTemplate DataType="{x:Type vm:TextPartViewModel}">
+                                            <TextBlock Text="{Binding Text}"
+                                                       FontFamily="Consolas,Courier New,monospace" />
+                                        </DataTemplate>
+                                        <DataTemplate DataType="{x:Type vm:TypeLinkViewModel}">
+                                            <Button Content="{Binding Text}"
+                                                    Command="{Binding NavigateCommand}"
+                                                    Theme="{StaticResource LinkButton}"
+                                                    FontFamily="Consolas,Courier New,monospace" />
+                                        </DataTemplate>
+                                        <DataTemplate DataType="{x:Type vm:FuncLinkViewModel}">
+                                            <Button Content="{Binding Text}"
+                                                    Command="{Binding NavigateCommand}"
+                                                    Theme="{StaticResource FuncLinkButton}"
+                                                    FontFamily="Consolas,Courier New,monospace" />
+                                        </DataTemplate>
+                                        <DataTemplate DataType="{x:Type vm:StringLinkViewModel}">
+                                            <Button Content="{Binding Text}"
+                                                    Command="{Binding NavigateCommand}"
+                                                    Theme="{StaticResource StringLinkButton}"
+                                                    FontFamily="Consolas,Courier New,monospace" />
+                                        </DataTemplate>
+                                    </ItemsControl.DataTemplates>
+                                </ItemsControl>
+                                <!-- Debug annotation -->
+                                <TextBlock Text="{Binding DebugInfo}"
+                                           IsVisible="{Binding HasDebugInfo}"
+                                           FontFamily="Consolas,Courier New,monospace"
+                                           Opacity="0.4" FontSize="11" />
+                            </StackPanel>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
+            <!-- Pseudocode view -->
+            <ItemsControl IsVisible="{Binding ShowPseudocode}"
+                          ItemsSource="{Binding PseudoLines}" Margin="4,0,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:PseudoCodeLine}">
+                        <TextBlock Text="{Binding Text}"
+                                   Foreground="{Binding Foreground}"
+                                   FontFamily="Consolas,Courier New,monospace"
+                                   FontSize="12" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <!-- Callers (M9) -->
+        <StackPanel IsVisible="{Binding Callers.Count}" Spacing="3">
+            <TextBlock Text="{Binding Callers.Count, StringFormat='Callers ({0})'}"
+                       FontWeight="SemiBold" />
+            <ItemsControl ItemsSource="{Binding Callers}" Margin="12,0,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:CallerItem}">
+                        <Button Content="{Binding Name}"
+                                Command="{Binding NavigateCommand}"
+                                Theme="{StaticResource FuncLinkButton}"
+                                Margin="0,1" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+    </StackPanel>
+</UserControl>

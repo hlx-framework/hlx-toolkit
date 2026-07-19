@@ -1,0 +1,159 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HLX.App.ViewModels.Detail"
+             x:Class="HLX.App.Views.Detail.TypeDetailView"
+             x:DataType="vm:TypeDetailViewModel">
+
+    <StackPanel Spacing="12">
+
+        <!-- Header -->
+        <StackPanel Spacing="2">
+            <TextBlock Text="{Binding TypeName}" FontSize="18" FontWeight="Bold" />
+            <TextBlock Text="{Binding KindLabel}" Opacity="0.6" />
+        </StackPanel>
+
+        <!-- Super type (Object/Struct only) -->
+        <StackPanel IsVisible="{Binding SuperType, Converter={x:Static ObjectConverters.IsNotNull}}"
+                    Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="extends" Opacity="0.6" />
+            <Button Content="{Binding SuperType.TypeName}"
+                    Command="{Binding SuperType.NavigateCommand}"
+                    Theme="{StaticResource LinkButton}" />
+        </StackPanel>
+
+        <!-- Inner type (Reference types) -->
+        <StackPanel IsVisible="{Binding InnerType, Converter={x:Static ObjectConverters.IsNotNull}}"
+                    Orientation="Horizontal" Spacing="6">
+            <TextBlock Text="{Binding ReferenceKind}" Opacity="0.6" />
+            <TextBlock Text="of" Opacity="0.6" />
+            <Button Content="{Binding InnerType.TypeName}"
+                    Command="{Binding InnerType.NavigateCommand}"
+                    Theme="{StaticResource LinkButton}" />
+        </StackPanel>
+
+        <!-- Function type detail -->
+        <StackPanel IsVisible="{Binding ReturnType, Converter={x:Static ObjectConverters.IsNotNull}}"
+                    Spacing="4">
+            <TextBlock Text="Parameters:" FontWeight="SemiBold" />
+            <ItemsControl ItemsSource="{Binding ArgTypes}" Margin="12,0,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:TypeLinkItem}">
+                        <Button Content="{Binding TypeName}"
+                                Command="{Binding NavigateCommand}"
+                                Theme="{StaticResource LinkButton}" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+                <TextBlock Text="Returns:" FontWeight="SemiBold" />
+                <Button Content="{Binding ReturnType.TypeName}"
+                        Command="{Binding ReturnType.NavigateCommand}"
+                        Theme="{StaticResource LinkButton}" />
+            </StackPanel>
+        </StackPanel>
+
+        <!-- Fields -->
+        <StackPanel IsVisible="{Binding Fields.Count}" Spacing="4">
+            <TextBlock Text="{Binding Fields.Count, StringFormat='Fields ({0})'}"
+                       FontWeight="SemiBold" />
+            <ItemsControl ItemsSource="{Binding Fields}" Margin="12,0,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:TypeLinkItem}">
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,1">
+                            <TextBlock Text="{Binding Name}" MinWidth="140" />
+                            <Button Content="{Binding TypeName}"
+                                    Command="{Binding NavigateCommand}"
+                                    Theme="{StaticResource LinkButton}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <!-- Virtual fields -->
+        <StackPanel IsVisible="{Binding VirtualFields.Count}" Spacing="4">
+            <TextBlock Text="{Binding VirtualFields.Count, StringFormat='Fields ({0})'}"
+                       FontWeight="SemiBold" />
+            <ItemsControl ItemsSource="{Binding VirtualFields}" Margin="12,0,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:TypeLinkItem}">
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,1">
+                            <TextBlock Text="{Binding Name}" MinWidth="140" />
+                            <Button Content="{Binding TypeName}"
+                                    Command="{Binding NavigateCommand}"
+                                    Theme="{StaticResource LinkButton}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <!-- Protos / Methods -->
+        <StackPanel IsVisible="{Binding Protos.Count}" Spacing="4">
+            <TextBlock Text="{Binding Protos.Count, StringFormat='Methods ({0})'}"
+                       FontWeight="SemiBold" />
+            <ItemsControl ItemsSource="{Binding Protos}" Margin="12,0,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:ProtoItem}">
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,1">
+                            <Button Content="{Binding Name}"
+                                    Command="{Binding NavigateCommand}"
+                                    Theme="{StaticResource FuncLinkButton}" MinWidth="140" />
+                            <TextBlock Text="{Binding Signature}" Opacity="0.6" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <!-- Bindings -->
+        <StackPanel IsVisible="{Binding Bindings.Count}" Spacing="4">
+            <TextBlock Text="{Binding Bindings.Count, StringFormat='Bindings ({0})'}"
+                       FontWeight="SemiBold" />
+            <ItemsControl ItemsSource="{Binding Bindings}" Margin="12,0,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:BindingItem}">
+                        <StackPanel Orientation="Horizontal" Spacing="6" Margin="0,1">
+                            <TextBlock Text="{Binding FieldName}" MinWidth="140" />
+                            <TextBlock Text="→" Opacity="0.5" />
+                            <Button Content="{Binding FunctionName}"
+                                    Command="{Binding NavigateCommand}"
+                                    Theme="{StaticResource FuncLinkButton}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+        <!-- Enum Constructs -->
+        <StackPanel IsVisible="{Binding Constructs.Count}" Spacing="4">
+            <TextBlock Text="{Binding Constructs.Count, StringFormat='Constructs ({0})'}"
+                       FontWeight="SemiBold" />
+            <ItemsControl ItemsSource="{Binding Constructs}" Margin="12,0,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="{x:Type vm:EnumConstructItem}">
+                        <StackPanel Spacing="2" Margin="0,2">
+                            <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                            <ItemsControl ItemsSource="{Binding ParamTypes}" Margin="12,0,0,0">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Orientation="Horizontal" />
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate DataType="{x:Type vm:TypeLinkItem}">
+                                        <Button Content="{Binding TypeName}"
+                                                Command="{Binding NavigateCommand}"
+                                                Theme="{StaticResource LinkButton}"
+                                                Margin="0,0,4,0" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+
+    </StackPanel>
+</UserControl>

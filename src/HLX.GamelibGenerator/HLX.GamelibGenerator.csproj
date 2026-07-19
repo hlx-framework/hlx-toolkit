@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>HLX.GamelibGenerator</RootNamespace>
+    <Version>0.0.1</Version>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>hlx-gamelib-generator</ToolCommandName>
+    <PackageId>HLX.GamelibGenerator</PackageId>
+    <Description>Offline dev-time tool that reads a game's hlboot.dat and emits typed Haxe gamelib wrappers (one abstract per game class) for hlx-framework mods to compile against.</Description>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <RepositoryUrl>https://github.com/hlx-framework/hlx-toolkit</RepositoryUrl>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\HLX.Core\HLX.Core.csproj" />
+    <ProjectReference Include="..\HLX.Decompiler\HLX.Decompiler.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Every type in this project is `internal sealed` by design (see e.g.
+         ClassCollector's own header comment) - there is no existing
+         InternalsVisibleTo precedent anywhere else in hlx-toolkit (HLX.Core
+         exposes its model as plain `public` instead), so this is a new,
+         narrowly-scoped grant to the one test assembly that needs to drive
+         these classes directly rather than only through Program.cs's CLI
+         surface. -->
+    <InternalsVisibleTo Include="HLX.GamelibGenerator.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/HLX.Core/HLX.Core.csproj" />
+    <Project Path="src/HLX.Analysis/HLX.Analysis.csproj" />
+    <Project Path="src/HLX.Decompiler/HLX.Decompiler.csproj" />
+    <Project Path="src/HLX.App/HLX.App.csproj" />
+    <Project Path="src/HLX.Viewer/HLX.Viewer.csproj" />
+    <Project Path="src/HLX.GamelibGenerator/HLX.GamelibGenerator.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/HLX.Core.Tests/HLX.Core.Tests.csproj" />
+    <Project Path="tests/HLX.Analysis.Tests/HLX.Analysis.Tests.csproj" />
+    <Project Path="tests/HLX.Decompiler.Tests/HLX.Decompiler.Tests.csproj" />
+    <Project Path="tests/HLX.App.Tests/HLX.App.Tests.csproj" />
+    <Project Path="tests/HLX.GamelibGenerator.Tests/HLX.GamelibGenerator.Tests.csproj" />
+  </Folder>
+</Solution>

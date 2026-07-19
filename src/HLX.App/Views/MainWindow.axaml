@@ -1,0 +1,203 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:HLX.App.ViewModels"
+        xmlns:detail="using:HLX.App.ViewModels.Detail"
+        xmlns:views="using:HLX.App.Views.Detail"
+        x:Class="HLX.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="{Binding Title}"
+        Width="1200" Height="750"
+        MinWidth="800" MinHeight="500">
+
+    <Window.DataTemplates>
+        <DataTemplate DataType="{x:Type detail:TypeDetailViewModel}">
+            <views:TypeDetailView />
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type detail:FunctionDetailViewModel}">
+            <views:FunctionDetailView />
+        </DataTemplate>
+    </Window.DataTemplates>
+
+    <DockPanel>
+        <!-- ── Menu ─────────────────────────────────────────────────────── -->
+        <Menu DockPanel.Dock="Top">
+            <MenuItem Header="_File">
+                <MenuItem Header="_Open…" Command="{Binding OpenFileCommand}"
+                          InputGesture="Ctrl+O" />
+                <Separator />
+                <MenuItem Header="E_xit" />
+            </MenuItem>
+        </Menu>
+
+        <!-- ── Toolbar ───────────────────────────────────────────────────── -->
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource SystemChromeLowColor}"
+                BorderBrush="{DynamicResource SystemBaseMediumLowColor}"
+                BorderThickness="0,0,0,1">
+            <StackPanel Orientation="Horizontal" Spacing="2" Margin="4,2">
+                <Button Content="←" Command="{Binding GoBackCommand}"
+                        ToolTip.Tip="Go Back" Padding="6,3" />
+                <Button Content="→" Command="{Binding GoForwardCommand}"
+                        ToolTip.Tip="Go Forward" Padding="6,3" />
+                <Separator Width="1" Background="{DynamicResource SystemBaseMediumLowColor}"
+                           Margin="4,2" Height="16" VerticalAlignment="Center" />
+                <Button Content="Open…" Command="{Binding OpenFileCommand}" Padding="6,3" />
+                <Separator Width="1" Background="{DynamicResource SystemBaseMediumLowColor}"
+                           Margin="4,2" Height="16" VerticalAlignment="Center" />
+                <TextBox Text="{Binding SearchQuery}" PlaceholderText="Search (types, methods, fields…)"
+                         Width="300" x:Name="SearchBox" FontSize="12"
+                         Padding="6,3" VerticalContentAlignment="Center"
+                         KeyDown="OnSearchBoxKeyDown" />
+                <Button Content="✕" IsVisible="{Binding IsSearchActive}"
+                        Click="OnClearSearch" Padding="5,3" />
+            </StackPanel>
+        </Border>
+
+        <!-- ── Status bar ─────────────────────────────────────────────────── -->
+        <Border DockPanel.Dock="Bottom"
+                Background="{DynamicResource SystemChromeMediumLowColor}"
+                BorderBrush="{DynamicResource SystemBaseMediumLowColor}"
+                BorderThickness="0,1,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="16" Margin="8,2">
+                <TextBlock Text="{Binding StatusText}" FontSize="12" Opacity="0.75" />
+                <TextBlock Text="{Binding StatusBarString}" Foreground="#CE9178" FontSize="12"
+                           IsVisible="{Binding IsStatusBarStringVisible}" />
+            </StackPanel>
+        </Border>
+
+        <!-- ── Find Usages panel ────────────────────────────────────────── -->
+        <Border DockPanel.Dock="Bottom" IsVisible="{Binding IsFindUsagesVisible}"
+                BorderBrush="{DynamicResource SystemAccentColor}" BorderThickness="0,1,0,0"
+                MaxHeight="160">
+            <DockPanel>
+                <Border DockPanel.Dock="Top"
+                        Background="{DynamicResource SystemChromeLowColor}"
+                        Padding="8,3">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="{Binding FindUsagesHeader}" FontWeight="SemiBold" FontSize="12" />
+                        <Button Content="✕" Command="{Binding CloseFindUsagesCommand}" Padding="4,1" />
+                    </StackPanel>
+                </Border>
+                <ScrollViewer>
+                    <ItemsControl ItemsSource="{Binding FindUsagesResults}" Margin="8,2">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:FindUsageResultViewModel}">
+                                <Button Content="{Binding Description}"
+                                        Command="{Binding NavigateCommand}"
+                                        Theme="{StaticResource LinkButton}"
+                                        FontSize="12" Margin="0,1" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
+        <!-- ── Main content area ──────────────────────────────────────────── -->
+        <!-- Column 1 = 4 px fixed splitter track -->
+        <Grid ColumnDefinitions="280,4,*">
+
+            <!-- Left panel: tree or search results, fills full height -->
+            <Grid Grid.Column="0">
+
+                <!-- Search results (shown when searching) -->
+                <ScrollViewer IsVisible="{Binding IsSearchActive}">
+                    <ItemsControl ItemsSource="{Binding SearchResults}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type vm:SearchResultViewModel}">
+                                <Button Content="{Binding Label}"
+                                        Command="{Binding NavigateCommand}"
+                                        HorizontalAlignment="Stretch"
+                                        HorizontalContentAlignment="Left"
+                                        FontSize="12"
+                                        Padding="8,3" Margin="0,0" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+
+                <!-- Assembly tree (shown when not searching) -->
+                <TreeView IsVisible="{Binding !IsSearchActive}"
+                          ItemsSource="{Binding RootNodes}"
+                          SelectedItem="{Binding SelectedNode, Mode=TwoWay}"
+                          FontSize="13">
+
+                    <TreeView.Styles>
+                        <!-- Compact rows + sync expand state with VM -->
+                        <Style Selector="TreeViewItem" x:DataType="vm:TreeNodeViewModel">
+                            <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                            <Setter Property="Padding" Value="2,2,4,2" />
+                            <Setter Property="ItemsPanel">
+                                <ItemsPanelTemplate>
+                                    <VirtualizingStackPanel />
+                                </ItemsPanelTemplate>
+                            </Setter>
+                        </Style>
+                    </TreeView.Styles>
+
+                    <!-- Per-type data templates (VS-like colours) -->
+                    <TreeView.DataTemplates>
+
+                        <!-- Namespace / group ── gray -->
+                        <TreeDataTemplate DataType="{x:Type vm:GroupNodeViewModel}"
+                                          ItemsSource="{Binding Children}">
+                            <TextBlock Text="{Binding Header}" Foreground="#858585" />
+                        </TreeDataTemplate>
+
+                        <!-- Type (class / enum / abstract) ── teal, Find Usages context menu -->
+                        <TreeDataTemplate DataType="{x:Type vm:TypeNodeViewModel}"
+                                          ItemsSource="{Binding Children}">
+                            <TextBlock Text="{Binding Header}" Foreground="#4EC9B0">
+                                <TextBlock.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Find Usages"
+                                                  Command="{Binding FindUsagesCommand}"
+                                                  IsEnabled="{Binding CanFindUsages}" />
+                                    </ContextMenu>
+                                </TextBlock.ContextMenu>
+                            </TextBlock>
+                        </TreeDataTemplate>
+
+                        <!-- Function / method / native ── yellow, Find Usages context menu -->
+                        <TreeDataTemplate DataType="{x:Type vm:FunctionNodeViewModel}"
+                                          ItemsSource="{Binding Children}">
+                            <TextBlock Text="{Binding Header}" Foreground="#DCDCAA">
+                                <TextBlock.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="Find Usages"
+                                                  Command="{Binding FindUsagesCommand}"
+                                                  IsEnabled="{Binding CanFindUsages}" />
+                                    </ContextMenu>
+                                </TextBlock.ContextMenu>
+                            </TextBlock>
+                        </TreeDataTemplate>
+
+                        <!-- Global ── light blue (field colour) -->
+                        <TreeDataTemplate DataType="{x:Type vm:GlobalNodeViewModel}"
+                                          ItemsSource="{Binding Children}">
+                            <TextBlock Text="{Binding Header}" Foreground="#9CDCFE" />
+                        </TreeDataTemplate>
+
+                    </TreeView.DataTemplates>
+                </TreeView>
+            </Grid>
+
+            <!-- Splitter: thin VS-like border, turns accent-blue on hover -->
+            <GridSplitter Grid.Column="1"
+                          Background="#3F3F46"
+                          ResizeBehavior="PreviousAndNext"
+                          ResizeDirection="Columns">
+                <GridSplitter.Styles>
+                    <Style Selector="GridSplitter:pointerover">
+                        <Setter Property="Background" Value="#007ACC" />
+                    </Style>
+                </GridSplitter.Styles>
+            </GridSplitter>
+
+            <!-- Detail panel -->
+            <ScrollViewer Grid.Column="2">
+                <ContentControl Content="{Binding CurrentDetail}" Margin="12,8" />
+            </ScrollViewer>
+        </Grid>
+    </DockPanel>
+</Window>

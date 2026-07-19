@@ -1,0 +1,91 @@
+name: Publish HLX.Viewer
+
+on:
+  push:
+    tags: ["HLX.Viewer/*"]
+
+permissions:
+  id-token: write
+  contents: write
+
+jobs:
+  verify-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches HLX.Viewer.csproj
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#HLX.Viewer/}"
+          PROJ_VERSION=$(grep -oP '(?<=<Version>).*?(?=</Version>)' src/HLX.Viewer/HLX.Viewer.csproj)
+          echo "tag=$VERSION props=$PROJ_VERSION"
+          if [ "$VERSION" != "$PROJ_VERSION" ]; then
+            echo "::error::Tag $TAG does not match src/HLX.Viewer/HLX.Viewer.csproj (\`$PROJ_VERSION\`). Bump it to $VERSION before tagging."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build-and-test:
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - run: dotnet restore src/HLX.Viewer/HLX.Viewer.csproj
+      - run: dotnet build src/HLX.Viewer/HLX.Viewer.csproj --configuration Release --no-restore
+      - run: dotnet test tests/HLX.Core.Tests/HLX.Core.Tests.csproj --configuration Release
+
+  publish:
+    needs: [verify-version, build-and-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Extract CHANGELOG section for this version
+        env:
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: |
+          awk -v art="## HLX.Viewer" -v ver="### [$VERSION]" '
+            $0 == art { inart=1; next }
+            inart && /^## / { inart=0 }
+            inart && index($0, ver) == 1 { insec=1; next }
+            insec && /^###/ { exit }
+            insec && /^## / { exit }
+            insec { print }
+          ' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "::error::No CHANGELOG.md entry found under '## HLX.Viewer' / '### [$VERSION]' - add one before tagging."
+            exit 1
+          fi
+
+      - name: Pack
+        run: dotnet pack src/HLX.Viewer/HLX.Viewer.csproj --configuration Release -o nupkg
+
+      - name: Publish to NuGet
+        run: |
+          dotnet nuget push "nupkg/*.nupkg" \
+            --source https://api.nuget.org/v3/index.json \
+            --skip-duplicate
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: HLX.Viewer/${{ needs.verify-version.outputs.version }}
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: |
+          gh release create "$TAG" \
+            --title "HLX.Viewer $VERSION" \
+            --notes-file release_notes.md \
+            nupkg/*.nupkg

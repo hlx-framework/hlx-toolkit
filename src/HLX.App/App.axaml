@@ -1,0 +1,36 @@
+<Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="HLX.App.App"
+             RequestedThemeVariant="Dark">
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+
+    <Application.Resources>
+        <!-- Hyperlink-style button for inline navigation -->
+        <ControlTheme x:Key="LinkButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Foreground" Value="#4EC9B0" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <ControlTemplate>
+                    <TextBlock Text="{TemplateBinding Content}"
+                               TextDecorations="Underline"
+                               Foreground="{TemplateBinding Foreground}"
+                               FontFamily="{TemplateBinding FontFamily}"
+                               FontSize="{TemplateBinding FontSize}" />
+                </ControlTemplate>
+            </Setter>
+        </ControlTheme>
+
+        <ControlTheme x:Key="FuncLinkButton" TargetType="Button" BasedOn="{StaticResource LinkButton}">
+            <Setter Property="Foreground" Value="#DCDCAA" />
+        </ControlTheme>
+
+        <ControlTheme x:Key="StringLinkButton" TargetType="Button" BasedOn="{StaticResource LinkButton}">
+            <Setter Property="Foreground" Value="#CE9178" />
+        </ControlTheme>
+    </Application.Resources>
+</Application>

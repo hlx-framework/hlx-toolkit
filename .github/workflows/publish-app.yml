@@ -1,0 +1,114 @@
+name: Publish HLX.App
+
+on:
+  push:
+    tags: ["HLX.App/*"]
+
+permissions:
+  contents: write
+
+jobs:
+  verify-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches HLX.App.csproj
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#HLX.App/}"
+          PROJ_VERSION=$(grep -oP '(?<=<Version>).*?(?=</Version>)' src/HLX.App/HLX.App.csproj)
+          echo "tag=$VERSION props=$PROJ_VERSION"
+          if [ "$VERSION" != "$PROJ_VERSION" ]; then
+            echo "::error::Tag $TAG does not match src/HLX.App/HLX.App.csproj (\`$PROJ_VERSION\`). Bump it to $VERSION before tagging."
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+  build-and-test:
+    needs: verify-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - run: dotnet restore src/HLX.App/HLX.App.csproj
+      - run: dotnet build src/HLX.App/HLX.App.csproj --configuration Release --no-restore
+      - run: dotnet test tests/HLX.App.Tests/HLX.App.Tests.csproj --configuration Release
+
+  publish:
+    needs: [verify-version, build-and-test]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rid: [win-x64, linux-x64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Publish (${{ matrix.rid }})
+        run: |
+          dotnet publish src/HLX.App/HLX.App.csproj \
+            --configuration Release \
+            --runtime ${{ matrix.rid }} \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -o publish/${{ matrix.rid }}
+
+      - name: Zip artifact
+        working-directory: publish/${{ matrix.rid }}
+        run: zip -r "../../HLX.App-${{ needs.verify-version.outputs.version }}-${{ matrix.rid }}.zip" .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HLX.App-${{ matrix.rid }}
+          path: HLX.App-${{ needs.verify-version.outputs.version }}-${{ matrix.rid }}.zip
+
+  release:
+    needs: [verify-version, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract CHANGELOG section for this version
+        env:
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: |
+          awk -v art="## HLX.App" -v ver="### [$VERSION]" '
+            $0 == art { inart=1; next }
+            inart && /^## / { inart=0 }
+            inart && index($0, ver) == 1 { insec=1; next }
+            insec && /^###/ { exit }
+            insec && /^## / { exit }
+            insec { print }
+          ' CHANGELOG.md > release_notes.md
+          if [ ! -s release_notes.md ]; then
+            echo "::error::No CHANGELOG.md entry found under '## HLX.App' / '### [$VERSION]' - add one before tagging."
+            exit 1
+          fi
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: HLX.App-*
+          merge-multiple: true
+          path: dist
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: HLX.App/${{ needs.verify-version.outputs.version }}
+          VERSION: ${{ needs.verify-version.outputs.version }}
+        run: |
+          gh release create "$TAG" \
+            --title "HLX.App $VERSION" \
+            --notes-file release_notes.md \
+            dist/*.zip
