@@ -65,6 +65,18 @@ internal sealed class GameClass
     // to plain `abstract X(Dynamic)` instead of chaining via @:forward.
     public string? ParentFullName;
 
+    // The name HlxRuntime.resolveType(...) must resolve against the HOST process at
+    // runtime - almost always the same as FullName (an ordinary game class's wrapper is
+    // emitted under its own real bytecode name). Differs for std wrappers (see
+    // Program.cs's std wrapper rename step, run right after ClassCollector/EnumCollector's
+    // CollectAll): FullName is the wrapper's own Haxe module path
+    // ("hlx.std.haxe.ds.StringMap", needed so it doesn't collide with a mod's real
+    // `haxe.ds.StringMap` import), but the host only knows the real name
+    // ("haxe.ds.StringMap") - resolving the wrapper's own fake name against the host
+    // returns null (confirmed live: "resolve_member_by_name: called with null
+    // type/name", cascading into a null-access crash). Null means "same as FullName".
+    public string? RuntimeTypeName;
+
     public string ShortName => Naming.ShortName(FullName);
     public string Package => Naming.PackageOf(FullName);
 }
@@ -84,6 +96,9 @@ internal sealed class GameEnum
     public required int TypeIndex;
     public List<GameEnumConstructor> Constructors { get; } = [];
     public List<string> Notes { get; } = []; // skipped-member reasons, kept for reporting
+
+    // See GameClass.RuntimeTypeName - same std-wrapper concern applies to enums.
+    public string? RuntimeTypeName;
 
     public string ShortName => Naming.ShortName(FullName);
     public string Package => Naming.PackageOf(FullName);

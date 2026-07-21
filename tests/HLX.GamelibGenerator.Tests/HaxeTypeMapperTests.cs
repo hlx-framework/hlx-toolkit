@@ -73,11 +73,127 @@ public class HaxeTypeMapperTests
     }
 
     [Fact]
-    public void Map_VirtualType_FallsBackToDynamic()
+    public void Map_VirtualType_NoFields_MapsToEmptyAnonStruct()
     {
+        // An empty field list is a real (if unusual) Haxe anon-struct type, not a
+        // "the generator gave up" case - no fields degraded, so no fallback reason.
         var mapper = MakeMapper([]);
         var result = mapper.Map(new VirtualType([]));
+        Assert.Equal("{}", result.HaxeType);
+        Assert.Null(result.FallbackReason);
+    }
+
+    [Fact]
+    public void Map_VirtualType_SimpleFields_MapsToAnonStruct()
+    {
+        // Real shape confirmed live for haxe.ds.StringMap.iterator(): { hasNext:()->Bool, next:()->Dynamic }.
+        var types = new List<HlType>
+        {
+            new PrimitiveType(PrimitiveKind.Bool),                 // 0: Bool
+            new FunctionType([], 0),                                // 1: () -> Bool
+            new PrimitiveType(PrimitiveKind.Dyn),                  // 2: Dynamic
+            new FunctionType([], 2),                                // 3: () -> Dynamic
+            new VirtualType([new HlField("hasNext", 1), new HlField("next", 3)]), // 4
+        };
+        var mapper = MakeMapper(types);
+        var result = mapper.Map(4);
+        Assert.Equal("{ hasNext:() -> Bool, next:() -> Dynamic }", result.HaxeType);
+        Assert.Null(result.FallbackReason);
+    }
+
+    [Fact]
+    public void Map_VirtualType_NestedVirtualTypeField_MapsRecursively()
+    {
+        // Real shape confirmed live for StringMap.keyValueIterator():
+        // { hasNext:()->Bool, next:()->{ key:String, value:Dynamic } }.
+        var types = new List<HlType>
+        {
+            new PrimitiveType(PrimitiveKind.Bool),                                    // 0: Bool
+            new FunctionType([], 0),                                                   // 1: () -> Bool
+            new ObjectType("String", null, 0, [], [], []),                             // 2: String
+            new PrimitiveType(PrimitiveKind.Dyn),                                     // 3: Dynamic
+            new VirtualType([new HlField("key", 2), new HlField("value", 3)]),         // 4: { key:String, value:Dynamic }
+            new FunctionType([], 4),                                                   // 5: () -> { key:..., value:... }
+            new VirtualType([new HlField("hasNext", 1), new HlField("next", 5)]),      // 6: outer
+        };
+        var mapper = MakeMapper(types);
+        var result = mapper.Map(6);
+        Assert.Equal("{ hasNext:() -> Bool, next:() -> { key:String, value:Dynamic } }", result.HaxeType);
+        Assert.Null(result.FallbackReason);
+    }
+
+    [Fact]
+    public void Map_VirtualType_UnnameableField_FallsBackWholeTypeToDynamic()
+    {
+        // An Iterator missing `next` (silently dropped) would be worse than an honest
+        // Dynamic - one bad field name takes down the WHOLE virtual type, not just itself.
+        var types = new List<HlType>
+        {
+            new PrimitiveType(PrimitiveKind.Bool),
+            new VirtualType([new HlField("", 0), new HlField("ok", 0)]),
+        };
+        var mapper = MakeMapper(types);
+        var result = mapper.Map(1);
         Assert.Equal("Dynamic", result.HaxeType);
+        Assert.NotNull(result.FallbackReason);
+    }
+
+    [Fact]
+    public void Map_VirtualType_ReservedWordFieldName_FallsBackWholeTypeToDynamic()
+    {
+        var types = new List<HlType>
+        {
+            new PrimitiveType(PrimitiveKind.Bool),
+            new VirtualType([new HlField("class", 0)]), // "class" is a reserved word
+        };
+        var mapper = MakeMapper(types);
+        var result = mapper.Map(1);
+        Assert.Equal("Dynamic", result.HaxeType);
+        Assert.NotNull(result.FallbackReason);
+    }
+
+    [Fact]
+    public void Map_VirtualType_SelfCyclicField_DoesNotHangOrCrash()
+    {
+        // A pathological virtual type whose own field points back at itself must degrade
+        // gracefully (the cyclic field maps to Dynamic with a reason) instead of
+        // recursing forever / stack-overflowing.
+        var types = new List<HlType>
+        {
+            new VirtualType([new HlField("self", 0)]), // 0: field "self" points back at index 0
+        };
+        var mapper = MakeMapper(types);
+        var result = mapper.Map(0);
+        Assert.Equal("{ self:Dynamic }", result.HaxeType);
+        Assert.NotNull(result.FallbackReason);
+        Assert.Contains("cyclic", result.FallbackReason);
+    }
+
+    [Fact]
+    public void Map_VirtualType_MutuallyCyclicChain_DoesNotHangOrCrash()
+    {
+        // Type 0 and type 1 are each VirtualTypes referencing each other via a
+        // function-typed field - a longer cyclic chain than the direct self-reference case.
+        var types = new List<HlType>
+        {
+            new FunctionType([], 1),                                    // 0: () -> (virtual at 1)
+            new VirtualType([]),                                        // 1: placeholder, replaced below
+        };
+        // Build the real cycle: index 2 is a VirtualType with a field pointing to a
+        // function (index 0) that returns back to a VirtualType at index 3, which in
+        // turn has a field pointing to a function (index 4) returning to index 2.
+        var cyclic = new List<HlType>
+        {
+            new FunctionType([], 3), // 0: () -> (virtual at 3)
+            null!,                    // unused placeholder to keep indices readable
+            new VirtualType([new HlField("a", 0)]), // 2
+            new VirtualType([new HlField("b", 4)]), // 3
+            new FunctionType([], 2), // 4: () -> (virtual at 2)
+        };
+        cyclic[1] = new PrimitiveType(PrimitiveKind.Void);
+        var mapper = MakeMapper(cyclic);
+        var result = mapper.Map(2);
+        Assert.NotNull(result.HaxeType);
         Assert.NotNull(result.FallbackReason);
     }
 
@@ -201,11 +317,42 @@ public class HaxeTypeMapperTests
     }
 
     [Fact]
-    public void MapObjectType_KnownGenericArity_ErasesTypeArgsToDynamic()
+    public void MapObjectType_StdWrapperCandidate_RoutesThroughGeneratedWrapper_NotRawErasedName()
     {
+        // Real bug: haxe.ds.StringMap is an ordinary Haxe class recompiled fresh per module -
+        // referencing it directly (even with erased Dynamic type args) fails a runtime SafeCast
+        // whenever the value actually originates from the host process ("Can't cast
+        // haxe.ds.StringMap to haxe.ds.StringMap"). A std name the classifier decided needs
+        // wrapping (i.e. present in includedClassNames - see ClassCollector.StdWrapperCandidateNames)
+        // routes to its "hlx.std.<name>" generated wrapper instead, same as every ordinary game
+        // class already does for its own bare name.
+        var mapper = MakeMapper([], includedClasses: new HashSet<string> { "haxe.ds.StringMap", "haxe.ds.ObjectMap" });
+        Assert.Equal("hlx.std.haxe.ds.StringMap", mapper.Map(new ObjectType("haxe.ds.StringMap", null, 0, [], [], [])).HaxeType);
+        Assert.Equal("hlx.std.haxe.ds.ObjectMap", mapper.Map(new ObjectType("haxe.ds.ObjectMap", null, 0, [], [], [])).HaxeType);
+    }
+
+    [Fact]
+    public void MapObjectType_StdTypeNotInScope_ReferencedDirectly()
+    {
+        // Unlike the old JSON-driven pipeline (which fell back to Dynamic pending a human-run
+        // --extract-std), a std name the classifier decided does NOT need wrapping (never added
+        // to includedClassNames - a native-ABI shell, no real fields/methods of its own) is
+        // simply safe to reference directly, same bucket as a root-magic name.
         var mapper = MakeMapper([]);
-        Assert.Equal("haxe.ds.StringMap<Dynamic>", mapper.Map(new ObjectType("haxe.ds.StringMap", null, 0, [], [], [])).HaxeType);
-        Assert.Equal("haxe.ds.ObjectMap<Dynamic, Dynamic>", mapper.Map(new ObjectType("haxe.ds.ObjectMap", null, 0, [], [], [])).HaxeType);
+        var result = mapper.Map(new ObjectType("sys.io.File", null, 0, [], [], []));
+        Assert.Equal("sys.io.File", result.HaxeType);
+        Assert.Null(result.FallbackReason);
+    }
+
+    [Fact]
+    public void MapObjectType_StdCompilerMagicName_StillReferencedDirectly()
+    {
+        // A bare compiler-magic name (Array, String, Map, ...) is genuinely shared across
+        // every module - still safe to reference directly, unlike ordinary std classes.
+        var mapper = MakeMapper([]);
+        var result = mapper.Map(new ObjectType("Array", null, 0, [], [], []));
+        Assert.Equal("Array", result.HaxeType);
+        Assert.Null(result.FallbackReason);
     }
 
     [Fact]
@@ -241,15 +388,6 @@ public class HaxeTypeMapperTests
         var result = mapper.Map(new ObjectType("_Main.Local", null, 0, [], [], []));
         Assert.Equal("Dynamic", result.HaxeType);
         Assert.NotNull(result.FallbackReason);
-    }
-
-    [Fact]
-    public void MapObjectType_ExcludedNamespaceButValidPath_ReferencedDirectly()
-    {
-        var mapper = MakeMapper([]);
-        var result = mapper.Map(new ObjectType("sys.io.File", null, 0, [], [], []));
-        Assert.Equal("sys.io.File", result.HaxeType);
-        Assert.Null(result.FallbackReason);
     }
 
     [Fact]

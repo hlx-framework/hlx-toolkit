@@ -130,11 +130,14 @@ public class ClassCollectorTests
     }
 
     [Fact]
-    public void Widget_MapField_ErasesTypeArgsToDynamic()
+    public void Widget_MapField_RoutesThroughGeneratedStdWrapper()
     {
-        // HL bytecode's ObjectType carries no generic-argument metadata, so the type arg is erased to Dynamic.
+        // haxe.ds.StringMap is an ordinary Haxe class recompiled fresh per module - referencing
+        // it directly fails a runtime SafeCast when the value originates from the host process.
+        // KnownStdWrapperPaths routes it to a generated hlx.std.* wrapper instead (see
+        // JsonStdApiExtractor/HaxeTypeMapperTests' own coverage of the underlying mapping rule).
         var f = Fixture.FindClass("Widget").Field("lookup");
-        Assert.Equal("haxe.ds.StringMap<Dynamic>", f.Type.HaxeType);
+        Assert.Equal("hlx.std.haxe.ds.StringMap", f.Type.HaxeType);
     }
 
     [Fact]

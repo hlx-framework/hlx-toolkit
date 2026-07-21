@@ -44,23 +44,51 @@ class Program
 
         var collector = new ClassCollector(module, ctorCollector.ConstructorFindexByTypeIndex);
         var enumCollector = new EnumCollector(module);
-        var mapper = new HaxeTypeMapper(module, collector.CandidateNames, enumCollector.CandidateNames);
+        // includedClassNames/includedEnumNames is the union of ordinary candidates and std
+        // wrapper candidates - std types can reference each other and ordinary game classes
+        // can reference std types, both directions, through the exact same "in scope" check
+        // (see HaxeTypeMapper.MapObjectType/MapEnumType).
+        var mapper = new HaxeTypeMapper(
+            module,
+            collector.CandidateNames.Union(collector.StdWrapperCandidateNames).ToHashSet(StringComparer.Ordinal),
+            enumCollector.CandidateNames.Union(enumCollector.StdWrapperCandidateNames).ToHashSet(StringComparer.Ordinal));
         collector.CollectAll(mapper);
         enumCollector.CollectAll(mapper);
+
+        // Std wrapper output routing: rename each std wrapper candidate's own GameClass/
+        // GameEnum so its generated file lands under hlx/std/** instead of colliding with
+        // its own real bytecode name - RuntimeTypeName keeps the real name the host process
+        // actually knows (see GameClass.RuntimeTypeName's doc comment). Must happen before
+        // GenericGrouping.Run and before the file-write loop below, both of which key off
+        // FullName/package for directory layout.
+        foreach (var c in collector.Classes)
+            if (collector.StdWrapperCandidateNames.Contains(c.FullName))
+            {
+                c.RuntimeTypeName = c.FullName;
+                c.FullName = Naming.StdWrapperPackagePrefix + c.FullName;
+            }
+        foreach (var e in enumCollector.Enums)
+            if (enumCollector.StdWrapperCandidateNames.Contains(e.FullName))
+            {
+                e.RuntimeTypeName = e.FullName;
+                e.FullName = Naming.StdWrapperPackagePrefix + e.FullName;
+            }
 
         Console.WriteLine($"[HLX.GamelibGenerator] {collector.TotalObjectTypes} object types total " +
             $"({collector.CompanionTypes} companions, {collector.ExcludedByNamespace} excluded by namespace, " +
             $"{collector.ExcludedUnreferenceable} private/nested/unreferenceable, " +
             $"{collector.ExcludedInvalidIdentifier} not valid Haxe type paths, " +
             $"{collector.ExcludedTooLong} too long to be a safe output path) - " +
-            $"{collector.CandidateNames.Count} classes in scope for generation.");
+            $"{collector.CandidateNames.Count} classes in scope for generation, " +
+            $"{collector.StdWrapperCandidateNames.Count} std wrapper class(es) discovered fresh from this hlboot.dat.");
 
         Console.WriteLine($"[HLX.GamelibGenerator] {enumCollector.TotalEnumTypes} enum types total " +
             $"({enumCollector.ExcludedByNamespace} excluded by namespace, " +
             $"{enumCollector.ExcludedUnreferenceable} private/nested/unreferenceable, " +
             $"{enumCollector.ExcludedInvalidIdentifier} not valid Haxe type paths, " +
             $"{enumCollector.ExcludedTooLong} too long to be a safe output path) - " +
-            $"{enumCollector.CandidateNames.Count} enums in scope for generation.");
+            $"{enumCollector.CandidateNames.Count} enums in scope for generation, " +
+            $"{enumCollector.StdWrapperCandidateNames.Count} std wrapper enum(s) discovered fresh from this hlboot.dat.");
 
         var grouping = GenericGrouping.Run(collector.Classes);
 

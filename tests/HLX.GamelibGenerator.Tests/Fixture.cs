@@ -27,9 +27,29 @@ internal static class Fixture
         var ctors = new ConstructorCollector(module);
         var classes = new ClassCollector(module, ctors.ConstructorFindexByTypeIndex);
         var enums = new EnumCollector(module);
-        var mapper = new HaxeTypeMapper(module, classes.CandidateNames, enums.CandidateNames);
+        var mapper = new HaxeTypeMapper(
+            module,
+            classes.CandidateNames.Union(classes.StdWrapperCandidateNames).ToHashSet(StringComparer.Ordinal),
+            enums.CandidateNames.Union(enums.StdWrapperCandidateNames).ToHashSet(StringComparer.Ordinal));
         classes.CollectAll(mapper);
         enums.CollectAll(mapper);
+
+        // Mirrors Program.cs's std wrapper output-routing rename (see its own comment) - the
+        // fixture's Widget.lookup:haxe.ds.StringMap field needs to see the exact same
+        // "hlx.std.haxe.ds.StringMap" it would in the real generator's output.
+        foreach (var c in classes.Classes)
+            if (classes.StdWrapperCandidateNames.Contains(c.FullName))
+            {
+                c.RuntimeTypeName = c.FullName;
+                c.FullName = Naming.StdWrapperPackagePrefix + c.FullName;
+            }
+        foreach (var e in enums.Enums)
+            if (enums.StdWrapperCandidateNames.Contains(e.FullName))
+            {
+                e.RuntimeTypeName = e.FullName;
+                e.FullName = Naming.StdWrapperPackagePrefix + e.FullName;
+            }
+
         var grouping = GenericGrouping.Run(classes.Classes);
 
         return new Loaded(module, ctors, classes, enums, mapper, grouping);

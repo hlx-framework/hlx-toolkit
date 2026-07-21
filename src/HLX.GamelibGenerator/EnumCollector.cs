@@ -14,6 +14,12 @@ internal sealed class EnumCollector
     public List<GameEnum> Enums { get; } = [];
     public HashSet<string> CandidateNames { get; } = [];
 
+    // Std (haxe./hl./sys.) enum names - a compiled EnumType always needs a wrapper (see
+    // StdWrapperClassifier.NeedsWrapper(EnumType)), so this always ends up holding every
+    // std-namespace name found here. Kept separate from CandidateNames for the same
+    // output-path reason as ClassCollector.StdWrapperCandidateNames.
+    public HashSet<string> StdWrapperCandidateNames { get; } = [];
+
     public int TotalEnumTypes;
     public int ExcludedByNamespace;
     public int ExcludedUnreferenceable;
@@ -31,23 +37,39 @@ internal sealed class EnumCollector
                 _enumTypeIndexByName[e.Name] = i;
             }
 
-        foreach (var (name, _) in _enumTypeIndexByName)
-            if (IsCandidateEnum(name)) CandidateNames.Add(name);
+        foreach (var (name, idx) in _enumTypeIndexByName)
+            ClassifyCandidate(name, (EnumType)module.Types[idx]);
     }
 
-    // Mirrors ClassCollector.IsCandidateClass's checks.
-    private bool IsCandidateEnum(string name)
+    // Mirrors ClassCollector.ClassifyCandidate's checks.
+    private void ClassifyCandidate(string name, EnumType e)
     {
-        if (Naming.HasUnreferenceableSegment(name)) { ExcludedUnreferenceable++; return false; }
-        if (Naming.IsExcludedNamespace(name)) { ExcludedByNamespace++; return false; }
-        if (!Naming.LooksLikeValidHaxeTypePath(name)) { ExcludedInvalidIdentifier++; return false; }
-        if (!Naming.IsReasonableLength(name)) { ExcludedTooLong++; return false; }
-        return true;
+        if (Naming.HasUnreferenceableSegment(name)) { ExcludedUnreferenceable++; return; }
+        if (!Naming.LooksLikeValidHaxeTypePath(name)) { ExcludedInvalidIdentifier++; return; }
+        if (!Naming.IsReasonableLength(name)) { ExcludedTooLong++; return; }
+
+        if (Naming.IsStdNamespace(name))
+        {
+            // No root-magic enum names exist in practice, but stay consistent with
+            // ClassCollector's own check rather than assuming that.
+            if (Naming.IsRootStdlibMagicName(name)) { ExcludedByNamespace++; return; }
+            // Same dead-output concern as ClassCollector's own check - a name
+            // HaxeTypeMapper always resolves via KnownModuleQualifiedPaths before ever
+            // reaching the wrap check would never actually get referenced as a wrapper.
+            if (HaxeTypeMapper.IsAlwaysResolvedBeforeWrapCheck(name)) { ExcludedByNamespace++; return; }
+            if (StdWrapperClassifier.NeedsWrapper(e))
+                StdWrapperCandidateNames.Add(name);
+            else
+                ExcludedByNamespace++;
+            return;
+        }
+
+        CandidateNames.Add(name);
     }
 
     public void CollectAll(HaxeTypeMapper mapper)
     {
-        foreach (var name in CandidateNames.OrderBy(n => n, StringComparer.Ordinal))
+        foreach (var name in CandidateNames.Concat(StdWrapperCandidateNames).OrderBy(n => n, StringComparer.Ordinal))
         {
             var idx = _enumTypeIndexByName[name];
             var e = (EnumType)_module.Types[idx];

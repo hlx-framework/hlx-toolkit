@@ -8,17 +8,20 @@ namespace HLX.GamelibGenerator;
 /// </summary>
 internal static partial class Naming
 {
-    // haxe.*, hl.*, sys.* stdlib - always available, nothing to wrap. The only
-    // remaining exclusion category (h2d./h3d./hxd./hxsl./FMOD_ used to be excluded
-    // too, but every wrapper here now resolves by name against the game's own
-    // running process, so there's no separate-version drift risk for those).
+    // haxe.*, hl.*, sys.* stdlib - needs special handling, but no longer an automatic
+    // drop: a bytecode-based classifier (see StdWrapperClassifier) decides per-name
+    // whether it needs a generated wrapper or is safe to reference directly. The only
+    // remaining ALWAYS-direct category is root-magic names (below) - genuinely shared
+    // across every module. (h2d./h3d./hxd./hxsl./FMOD_ used to be excluded too, but
+    // every wrapper here now resolves by name against the game's own running process,
+    // so there's no separate-version drift risk for those.)
     private static readonly Regex RootStdlibMagicNamePattern = new(
         @"^(?:Std|Type|Sys|String|Math|Array|Date|EReg|Xml|Reflect|IntIterator|UInt|" +
         @"ValueType|Enum|EnumValue|Class|Dynamic|Void|Bool|Int|Float|Map|IMap|StringBuf|" +
         @"StringTools|SysError|Any|DateTools|Lambda|List|UnicodeString|ArrayAccess|" +
         @"Iterable|Iterator|KeyValueIterable|KeyValueIterator|Null|Single)$");
 
-    private static readonly Regex[] ExcludedNamespacePatterns =
+    private static readonly Regex[] StdNamespacePatterns =
     [
         RootStdlibMagicNamePattern,
         new Regex(@"^haxe\..*$"),
@@ -26,8 +29,17 @@ internal static partial class Naming
         new Regex(@"^sys\..*$"),
     ];
 
-    public static bool IsExcludedNamespace(string dottedName) =>
-        ExcludedNamespacePatterns.Any(p => p.IsMatch(dottedName));
+    // Std (haxe./hl./sys., plus bare root-magic names) - a name matching this needs
+    // routing through StdWrapperClassifier's wrap-vs-direct-reference decision instead
+    // of being generated like an ordinary game class. Renamed from the old
+    // "IsExcludedNamespace": these names are no longer categorically excluded, some now
+    // get a generated wrapper of their own.
+    public static bool IsStdNamespace(string dottedName) =>
+        StdNamespacePatterns.Any(p => p.IsMatch(dottedName));
+
+    // Package prefix a std wrapper's own generated Haxe module lives under - e.g.
+    // "haxe.ds.StringMap" wraps as "hlx.std.haxe.ds.StringMap" (see GameClass.RuntimeTypeName).
+    public const string StdWrapperPackagePrefix = "hlx.std.";
 
     // FMOD's native C-binding marker names (FMOD_STUDIO_EVENTDESCRIPTION, ...) - opaque
     // native handles with no real Haxe declaration a mod's compile could ever resolve.
@@ -35,7 +47,7 @@ internal static partial class Naming
 
     public static bool IsThirdPartyNativeAbiName(string name) => FmodNativeAbiPattern.IsMatch(name);
 
-    // Bare-name check (vs. IsExcludedNamespace's qualified-prefix check) - needed by
+    // Bare-name check (vs. IsStdNamespace's qualified-prefix check) - needed by
     // StdLibScanner since a secondary type's bare name can coincide with a root name
     // (e.g. hl.Class) without being that root type.
     public static bool IsRootStdlibMagicName(string bareName) => RootStdlibMagicNamePattern.IsMatch(bareName);

@@ -31,16 +31,16 @@ public class NamingTests
     [InlineData("sys.io.File")]
     [InlineData("Void")]
     [InlineData("Map")]
-    public void IsExcludedNamespace_MatchesStdlibPrefixesAndMagicNames(string name) =>
-        Assert.True(Naming.IsExcludedNamespace(name));
+    public void IsStdNamespace_MatchesStdlibPrefixesAndMagicNames(string name) =>
+        Assert.True(Naming.IsStdNamespace(name));
 
     [Theory]
     [InlineData("game.Player")]
     [InlineData("hxd.res.DefaultFont")]
     [InlineData("h2d.Object")]
     [InlineData("Widget")]
-    public void IsExcludedNamespace_DoesNotMatchGameOrEngineNamespaces(string name) =>
-        Assert.False(Naming.IsExcludedNamespace(name));
+    public void IsStdNamespace_DoesNotMatchGameOrEngineNamespaces(string name) =>
+        Assert.False(Naming.IsStdNamespace(name));
 
     [Theory]
     [InlineData("_Main.Local", true)]      // leading underscore segment

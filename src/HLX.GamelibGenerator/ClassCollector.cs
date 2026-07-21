@@ -17,6 +17,12 @@ internal sealed class ClassCollector
     public List<GameClass> Classes { get; } = [];
     public HashSet<string> CandidateNames { get; } = [];
 
+    // Std (haxe./hl./sys.) names StdWrapperClassifier decided need a generated wrapper -
+    // built via the exact same BuildClass machinery as CandidateNames, just kept in a
+    // separate set since their OUTPUT PATH differs (see Program.cs's std rename step,
+    // which renames each one's FullName to "hlx.std.<real name>" after CollectAll).
+    public HashSet<string> StdWrapperCandidateNames { get; } = [];
+
     public int TotalObjectTypes;
     public int CompanionTypes;
     public int ExcludedByNamespace;
@@ -43,27 +49,59 @@ internal sealed class ClassCollector
         foreach (var f in module.Functions) _functionTypeByIndex[f.FunctionIndex] = f.Type;
 
         // A companion's `$` prefix is on its LAST segment only (e.g. "hxd.res.$DefaultFont").
-        foreach (var (name, _) in _objectTypeIndexByName)
+        foreach (var (name, idx) in _objectTypeIndexByName)
         {
             if (Naming.ShortName(name).StartsWith('$')) { CompanionTypes++; continue; }
-            if (IsCandidateClass(name)) CandidateNames.Add(name);
+            ClassifyCandidate(name, idx);
         }
     }
 
-    private bool IsCandidateClass(string name)
+    // Routes a std-namespace name through StdWrapperClassifier instead of dropping it
+    // outright - the only difference from an ordinary game class is WHICH set it lands
+    // in (and, for std, that the companion's own static members can also justify a wrap).
+    private void ClassifyCandidate(string name, int idx)
     {
-        if (Naming.HasUnreferenceableSegment(name)) { ExcludedUnreferenceable++; return false; }
-        if (Naming.IsExcludedNamespace(name)) { ExcludedByNamespace++; return false; }
-        if (!Naming.LooksLikeValidHaxeTypePath(name)) { ExcludedInvalidIdentifier++; return false; }
-        if (!Naming.IsReasonableLength(name)) { ExcludedTooLong++; return false; }
-        return true;
+        if (Naming.HasUnreferenceableSegment(name)) { ExcludedUnreferenceable++; return; }
+        if (!Naming.LooksLikeValidHaxeTypePath(name)) { ExcludedInvalidIdentifier++; return; }
+        if (!Naming.IsReasonableLength(name)) { ExcludedTooLong++; return; }
+
+        if (Naming.IsStdNamespace(name))
+        {
+            // Root-magic names (Array, String, Map, ...) are genuinely shared across
+            // every module - always referenced directly, never generated. Same for a
+            // name HaxeTypeMapper always resolves via an earlier special case (real
+            // Array<T> backing types, module-qualified secondary-type renames) -
+            // wrapping one of those would be dead output nothing ever references.
+            if (Naming.IsRootStdlibMagicName(name)) { ExcludedByNamespace++; return; }
+            if (HaxeTypeMapper.IsAlwaysResolvedBeforeWrapCheck(name)) { ExcludedByNamespace++; return; }
+
+            var o = (ObjectType)_module.Types[idx];
+            if (StdWrapperClassifier.NeedsWrapper(o, LookupCompanion(name)))
+                StdWrapperCandidateNames.Add(name);
+            else
+                ExcludedByNamespace++; // native-ABI shell - safe to reference directly, same as a magic name.
+            return;
+        }
+
+        CandidateNames.Add(name);
     }
 
+    private static string CompanionNameOf(string name) =>
+        Naming.PackageOf(name) is "" ? "$" + name : Naming.PackageOf(name) + ".$" + Naming.ShortName(name);
+
+    private ObjectType? LookupCompanion(string name) =>
+        _objectTypeIndexByName.TryGetValue(CompanionNameOf(name), out var idx) && _module.Types[idx] is ObjectType companion
+            ? companion
+            : null;
+
     // Requires both collectors' candidate names already collected (see Program.cs's sequencing).
+    // Std wrapper candidates are built via the exact same BuildClass machinery as ordinary
+    // classes - Program.cs renames their FullName/RuntimeTypeName afterward (step 2 of the
+    // std-wrapper refactor), before grouping/emission.
     public void CollectAll(HaxeTypeMapper mapper)
     {
         _mapper = mapper;
-        foreach (var name in CandidateNames.OrderBy(n => n, StringComparer.Ordinal))
+        foreach (var name in CandidateNames.Concat(StdWrapperCandidateNames).OrderBy(n => n, StringComparer.Ordinal))
         {
             var idx = _objectTypeIndexByName[name];
             var o = (ObjectType)_module.Types[idx];
@@ -115,9 +153,7 @@ internal sealed class ClassCollector
         }
 
         // Static members live on a "$ClassName" companion type.
-        var companionName = Naming.PackageOf(name) is "" ? "$" + name : Naming.PackageOf(name) + ".$" + Naming.ShortName(name);
-        if (_objectTypeIndexByName.TryGetValue(companionName, out var companionIdx) &&
-            _module.Types[companionIdx] is ObjectType companion)
+        if (LookupCompanion(name) is { } companion)
         {
             CollectStaticMembers(companion, gc, usedNames);
         }
@@ -144,11 +180,21 @@ internal sealed class ClassCollector
     }
 
     // Only the direct super: @:forward composes transitively through the parent's own wrapper.
+    // A std wrapper candidate can chain onto another std wrapper candidate too (e.g. a std
+    // subclass extending a std base class), same as ordinary game classes - but the parent's
+    // OWN generated file lives under its renamed "hlx.std.<name>" path (see Program.cs's std
+    // rename step, which runs after CollectAll), so ParentFullName must anticipate that rename
+    // here instead of using the parent's raw bytecode name - referencing the real std class
+    // directly as this abstract's underlying type would be exactly the cross-module SafeCast
+    // bug the wrapper exists to dodge (and, for a real generic std class like
+    // haxe.ds.BalancedTree, also just fails to compile - "Not enough type parameters").
     private string? ResolveGeneratedParent(ObjectType o)
     {
         if (o.SuperIndex is not { } superIdx) return null;
         if (_module.Types[superIdx] is not ObjectType super) return null;
-        return CandidateNames.Contains(super.Name) ? super.Name : null;
+        if (CandidateNames.Contains(super.Name)) return super.Name;
+        if (StdWrapperCandidateNames.Contains(super.Name)) return Naming.StdWrapperPackagePrefix + super.Name;
+        return null;
     }
 
     private void CollectStaticMembers(ObjectType companion, GameClass gc, HashSet<string> usedNames)

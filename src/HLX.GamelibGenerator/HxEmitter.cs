@@ -23,11 +23,12 @@ internal static class HxEmitter
         EmitImports(sb, needsResolvedMember: needsResolvedMember);
         EmitNotes(sb, c.Notes);
 
+        var runtimeName = c.RuntimeTypeName ?? c.FullName;
         EmitClassHeader(sb, c);
-        EmitFields(sb, c.FullName, c.Fields, indent: "    ");
-        EmitStaticFields(sb, c.FullName, c.StaticFields, indent: "    ");
-        EmitMethods(sb, c.FullName, c.Methods, indent: "    ");
-        EmitConstructorFactory(sb, c.FullName, c.ShortName, c.Constructor, indent: "    ");
+        EmitFields(sb, runtimeName, c.Fields, indent: "    ");
+        EmitStaticFields(sb, runtimeName, c.StaticFields, indent: "    ");
+        EmitMethods(sb, runtimeName, c.Methods, indent: "    ");
+        EmitConstructorFactory(sb, runtimeName, c.ShortName, c.Constructor, indent: "    ");
         sb.Append("}\n");
         return sb.ToString();
     }
@@ -96,6 +97,7 @@ internal static class HxEmitter
             sb.Append($"//   {c.Index}: {c.Name}({ps})\n");
         }
 
+        var runtimeName = e.RuntimeTypeName ?? e.FullName;
         sb.Append($"abstract {e.ShortName}(Dynamic) {{\n");
         // "std.Type", not bare "Type": avoids resolving to a same-package generated
         // type also named Type (e.g. hxsl.Type) instead of the real stdlib one.
@@ -120,7 +122,7 @@ internal static class HxEmitter
             {
                 sb.Append($"    public static var {c.Name}(get, never):{e.ShortName};\n");
                 sb.Append($"    static inline function get_{c.Name}():{e.ShortName}\n");
-                sb.Append($"        return HlxRuntime.resolveStaticField(HlxRuntime.resolveType(\"{e.FullName}\"), \"{c.Name}\");\n\n");
+                sb.Append($"        return HlxRuntime.resolveStaticField(HlxRuntime.resolveType(\"{runtimeName}\"), \"{c.Name}\");\n\n");
             }
             else
             {
@@ -139,7 +141,7 @@ internal static class HxEmitter
                 sb.Append($"    static var {cacheVar}:ResolvedMember;\n");
                 sb.Append($"    public static function {c.Name}({paramList}):{e.ShortName} {{\n");
                 sb.Append($"        if ({cacheVar} == null)\n");
-                sb.Append($"            {cacheVar} = HlxRuntime.resolveStaticMember(HlxRuntime.resolveType(\"{e.FullName}\"), \"{c.Name}\");\n");
+                sb.Append($"            {cacheVar} = HlxRuntime.resolveStaticMember(HlxRuntime.resolveType(\"{runtimeName}\"), \"{c.Name}\");\n");
                 sb.Append($"        return HlxRuntime.callResolved({cacheVar}, [{argsForCall}]);\n");
                 sb.Append("    }\n\n");
             }

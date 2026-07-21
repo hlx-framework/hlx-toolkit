@@ -16,24 +16,94 @@ internal sealed class HaxeTypeMapper(
     private static readonly IReadOnlyDictionary<string, string> knownModuleQualifiedPaths =
         KnownModuleQualifiedPaths.Table;
 
-    public MappedType Map(int typeIndex)
+    // A std name MapObjectType/MapEnumType always resolves via an earlier special case -
+    // a real Array<T> backing type, or a module-qualified secondary-type rename (see
+    // KnownModuleQualifiedPaths) - before ever reaching the wrap-vs-direct-reference
+    // check. Building a wrapper for one of these would be dead output: nothing will
+    // ever reference it under this identity. ClassCollector/EnumCollector check this
+    // before routing a std name through StdWrapperClassifier at all, so it's never
+    // added to StdWrapperCandidateNames in the first place.
+    public static bool IsAlwaysResolvedBeforeWrapCheck(string name) =>
+        name is "hl.types.ArrayObj" or "hl.types.ArrayDyn"
+        || name.StartsWith("hl.types.ArrayBytes_", StringComparison.Ordinal)
+        || KnownModuleQualifiedPaths.Table.ContainsKey(name);
+
+    // A cyclic/self-referential virtual (or function/reference) type chain is guarded
+    // two ways: `visiting` (threaded through every recursive descent below) tracks type
+    // indices currently being expanded on the CURRENT path - added in MapIndexed before
+    // recursing, removed again once that branch finishes, so a diamond-shaped
+    // non-cyclic revisit from a sibling branch is still fine, but a real cycle back to
+    // an ancestor on the path is caught immediately. MaxNestingDepth is a backstop for
+    // pathological (non-cyclic) deep nesting that the visited-set alone wouldn't catch.
+    private const int MaxNestingDepth = 64;
+
+    public MappedType Map(int typeIndex) => MapIndexed(typeIndex, [], 0);
+
+    public MappedType Map(HlType t) => MapCore(t, [], 0);
+
+    private MappedType MapIndexed(int typeIndex, HashSet<int> visiting, int depth)
     {
         if ((uint)typeIndex >= (uint)module.Types.Length)
             return new MappedType("Dynamic", $"type index {typeIndex} out of range");
-        return Map(module.Types[typeIndex]);
+        if (depth > MaxNestingDepth)
+            return new MappedType("Dynamic", "type nesting exceeded max recursion depth");
+        if (!visiting.Add(typeIndex))
+            return new MappedType("Dynamic", $"cyclic type reference back to type index {typeIndex}");
+        try
+        {
+            return MapCore(module.Types[typeIndex], visiting, depth + 1);
+        }
+        finally
+        {
+            visiting.Remove(typeIndex);
+        }
     }
 
-    public MappedType Map(HlType t) => t switch
+    private MappedType MapCore(HlType t, HashSet<int> visiting, int depth) => t switch
     {
         PrimitiveType p => MapPrimitive(p.Kind),
         ObjectType o => MapObjectType(o),
         EnumType e => MapEnumType(e),
         AbstractType a => MapNamedFallback(a.Name, "abstract"),
-        VirtualType => new MappedType("Dynamic", "HL 'virtual' structural type has no fixed Haxe shape"),
-        FunctionType f => MapFunctionType(f),
-        ReferenceType r => MapReferenceType(r),
+        VirtualType v => MapVirtualType(v, visiting, depth),
+        FunctionType f => MapFunctionType(f, visiting, depth),
+        ReferenceType r => MapReferenceType(r, visiting, depth),
         _ => new MappedType("Dynamic", $"unrecognized HL type kind {t.GetType().Name}")
     };
+
+    // HL's "virtual" kind is a fixed, named field list declared at compile time - real
+    // structure, unlike the genuinely shapeless "dynobj" kind (see PrimitiveKind.DynObj,
+    // untouched). In real Haxe source, Iterator<T>/Iterable<T>/KeyValueIterator<K,V> ARE
+    // just anonymous-structure typedefs, so emitting a plain anon struct here (rather
+    // than Dynamic) lets Haxe's own structural typing unify a wrapper's iterator()/
+    // keys()/keyValueIterator() etc. against those interfaces - which is exactly what a
+    // `for` loop over a wrapper's iterator() requires. This is deliberately general:
+    // it fixes every structural shape (game-class virtual params/returns too), not just
+    // recognized iterator shapes.
+    //
+    // A field name that isn't a legal plain Haxe identifier (empty, a reserved word, ...)
+    // can't be safely emitted - and dropping just that field would produce a silently
+    // PARTIAL structure (e.g. an Iterator missing `next`), worse than an honest Dynamic.
+    // So an unnameable field takes down the whole virtual type, not just itself.
+    private MappedType MapVirtualType(VirtualType v, HashSet<int> visiting, int depth)
+    {
+        if (v.Fields.Length == 0)
+            return new MappedType("{}", null);
+
+        var fieldStrs = new List<string>();
+        string? reason = null;
+        foreach (var f in v.Fields)
+        {
+            if (!Naming.IsValidPlainIdentifier(f.Name))
+                return new MappedType("Dynamic",
+                    $"HL 'virtual' structural type has a field ('{f.Name}') that isn't a usable plain Haxe identifier; whole type erased rather than emitting a partial shape");
+
+            var fieldType = MapIndexed(f.TypeIndex, visiting, depth);
+            reason ??= fieldType.FallbackReason;
+            fieldStrs.Add($"{f.Name}:{fieldType.HaxeType}");
+        }
+        return new MappedType($"{{ {string.Join(", ", fieldStrs)} }}", reason);
+    }
 
     // HL makes the receiver an explicit first argument for instance methods; drop it
     // from the Haxe-visible parameter list (the call site re-adds `this` explicitly).
@@ -67,8 +137,16 @@ internal sealed class HaxeTypeMapper(
 
     // Real Haxe generic classes whose type parameter(s) can't be recovered from
     // bytecode (no generic metadata) - erased to Dynamic args so the reference still
-    // parses as a complete type instead of a bare, arity-mismatched name.
-    private static readonly Dictionary<string, int> KnownGenericArity = new()
+    // parses as a complete type instead of a bare, arity-mismatched name. Reached for a
+    // class referenced DIRECTLY: domkit.* (already-safe locally-generated wrappers), and
+    // - real compile failure found live ("Not enough type parameters for haxe.ds.TreeNode",
+    // hit via haxe.ds.BalancedTree.root once BalancedTree itself started getting a real
+    // generated wrapper) - a knownModuleQualifiedPaths secondary-type rename (see below,
+    // and MapObjectType's own qualifiedPath branch) that happens to also be generic. Most
+    // std rows below are otherwise unreachable through the ordinary wrap-vs-direct-reference
+    // std-namespace branch (that always returns first for anything NOT intercepted by
+    // knownModuleQualifiedPaths) - harmless, kept for the rare qualifiedPath-generic case above.
+    internal static readonly Dictionary<string, int> KnownGenericArity = new()
     {
         ["haxe.ds.StringMap"] = 1,
         ["haxe.ds.IntMap"] = 1,
@@ -77,6 +155,7 @@ internal sealed class HaxeTypeMapper(
         ["haxe.ds.WeakMap"] = 2,
         ["haxe.ds.Vector"] = 1,
         ["haxe.ds.List"] = 1,
+        ["haxe.ds.TreeNode"] = 2,
         ["haxe.iterators.ArrayIterator"] = 1,
         ["hl.types.IntMap"] = 1,
         ["hl.types.BytesMap"] = 1,
@@ -101,12 +180,29 @@ internal sealed class HaxeTypeMapper(
             return new MappedType($"Array<{elem}>", null);
         }
         if (knownModuleQualifiedPaths.TryGetValue(name, out var qualifiedPath))
-            return new MappedType(qualifiedPath, null);
+            return new MappedType(ApplyKnownGenericArity(name, qualifiedPath), null);
 
-        // A locally-generated wrapper is always non-generic, even if the real upstream
-        // class also appears in KnownGenericArity (e.g. domkit.Properties) - must be
-        // checked before that table.
+        // In scope for generation - either an ordinary game class (includedClassNames is
+        // ClassCollector.CandidateNames) or a std wrapper candidate
+        // (ClassCollector.StdWrapperCandidateNames, unioned in by the caller - see
+        // Program.cs). A std wrapper's own generated file lives under "hlx.std.<name>",
+        // never under its own real name - referencing it AS ITSELF is exactly the
+        // cross-module SafeCast bug this whole indirection exists to dodge (an ordinary
+        // Haxe class/enum recompiled fresh by every mod's own `haxe` invocation).
         if (includedClassNames.Contains(name) && Naming.LooksLikeValidHaxeTypePath(name))
+        {
+            var wrapperPath = Naming.IsStdNamespace(name) ? Naming.StdWrapperPackagePrefix + name : name;
+            return new MappedType(wrapperPath, null);
+        }
+
+        if (Naming.HasUnreferenceableSegment(name))
+            return new MappedType("Dynamic", $"'{name}' is a companion/private/nested type, not directly referenceable");
+
+        // Std (haxe./hl./sys.) namespace, not in scope above: either a compiler-magic name
+        // (Array, String, Map, Iterator, ...) genuinely shared across every module, or a
+        // native-ABI shell StdWrapperClassifier decided needs no wrapper - both safe to
+        // reference directly, unlike a real recompiled class/enum.
+        if (Naming.IsStdNamespace(name))
             return new MappedType(name, null);
 
         if (KnownGenericArity.TryGetValue(name, out var arity))
@@ -115,34 +211,40 @@ internal sealed class HaxeTypeMapper(
             return new MappedType($"{name}<{args}>", null);
         }
 
-        if (Naming.HasUnreferenceableSegment(name))
-            return new MappedType("Dynamic", $"'{name}' is a companion/private/nested type, not directly referenceable");
-
-        if (Naming.IsExcludedNamespace(name))
-        {
-            return Naming.LooksLikeValidHaxeTypePath(name)
-                ? new MappedType(name, null)
-                : new MappedType("Dynamic", $"'{name}' is excluded from generation and not a valid Haxe type path");
-        }
-
         return new MappedType("Dynamic", $"'{name}' not generated (excluded, invalid identifier, or filtered out)");
     }
+
+    // Appends Dynamic-erased type args when the ORIGINAL bytecode name (never the
+    // resolved path - KnownGenericArity is keyed by the bytecode-visible bare name, see
+    // e.g. its own "haxe.ds.TreeNode" row) is a known generic arity - a bare reference to
+    // a real generic class fails to compile ("Not enough type parameters") otherwise.
+    private static string ApplyKnownGenericArity(string bytecodeName, string resolvedPath) =>
+        KnownGenericArity.TryGetValue(bytecodeName, out var arity)
+            ? $"{resolvedPath}<{string.Join(", ", Enumerable.Repeat("Dynamic", arity))}>"
+            : resolvedPath;
 
     private MappedType MapEnumType(EnumType e)
     {
         var name = e.Name;
         if (knownModuleQualifiedPaths.TryGetValue(name, out var qualifiedPath))
-            return new MappedType(qualifiedPath, null);
+            return new MappedType(ApplyKnownGenericArity(name, qualifiedPath), null);
         if (Naming.HasUnreferenceableSegment(name))
             return new MappedType("Dynamic", $"'{name}' is a companion/private/nested enum type");
-        if (Naming.IsExcludedNamespace(name))
-        {
-            return Naming.LooksLikeValidHaxeTypePath(name)
-                ? new MappedType(name, null)
-                : new MappedType("Dynamic", $"'{name}' is excluded and not a valid Haxe type path");
-        }
+
+        // Same std-safety concern as MapObjectType - a std enum is still an ordinary
+        // recompiled-per-module type, not a compiler-magic one. includedEnumNames is the
+        // union of EnumCollector.CandidateNames and .StdWrapperCandidateNames (see Program.cs).
         if (includedEnumNames.Contains(name) && Naming.LooksLikeValidHaxeTypePath(name))
+        {
+            var wrapperPath = Naming.IsStdNamespace(name) ? Naming.StdWrapperPackagePrefix + name : name;
+            return new MappedType(wrapperPath, null);
+        }
+
+        // Std namespace, not in scope above: no root-magic enum names exist in practice,
+        // but this is the same safe-direct-reference fallback as MapObjectType's.
+        if (Naming.IsStdNamespace(name))
             return new MappedType(name, null);
+
         return new MappedType("Dynamic", $"'{name}' (enum) not generated (excluded, invalid identifier, or filtered out)");
     }
 
@@ -157,17 +259,17 @@ internal sealed class HaxeTypeMapper(
             : new MappedType("Dynamic", $"'{name}' ({kindLabel}) is a native/internal name, not a directly referenceable Haxe type");
     }
 
-    private MappedType MapFunctionType(FunctionType f)
+    private MappedType MapFunctionType(FunctionType f, HashSet<int> visiting, int depth)
     {
         var args = new List<string>();
         string? reason = null;
         foreach (var argIdx in f.ArgTypes)
         {
-            var m = Map(argIdx);
+            var m = MapIndexed(argIdx, visiting, depth);
             args.Add(m.HaxeType);
             reason ??= m.FallbackReason;
         }
-        var ret = Map(f.ReturnType);
+        var ret = MapIndexed(f.ReturnType, visiting, depth);
         reason ??= ret.FallbackReason;
 
         // Haxe's `->` is right-associative: a function-typed return value needs an
@@ -178,9 +280,9 @@ internal sealed class HaxeTypeMapper(
         return new MappedType($"({string.Join(", ", args)}) -> {retStr}", reason);
     }
 
-    private MappedType MapReferenceType(ReferenceType r)
+    private MappedType MapReferenceType(ReferenceType r, HashSet<int> visiting, int depth)
     {
-        var inner = Map(r.InnerTypeIndex);
+        var inner = MapIndexed(r.InnerTypeIndex, visiting, depth);
         return r.Kind switch
         {
             // Null<T> is an exact, real Haxe equivalent.
