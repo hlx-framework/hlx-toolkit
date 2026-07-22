@@ -114,7 +114,7 @@ internal static class HxEmitter
         {
             var isName = "is" + c.Name;
             if (Naming.IsValidPlainIdentifier(isName) && used.Add(isName))
-                sb.Append($"    public inline function {isName}():Bool\n        return getIndex() == {c.Index};\n\n");
+                sb.Append($"    public inline function {isName}():Bool\n        return getConstructorName() == \"{c.Name}\";\n\n");
 
             if (!Naming.IsValidPlainIdentifier(c.Name) || !used.Add(c.Name)) continue;
 

@@ -92,7 +92,7 @@ public class HxEmitterTests
         var src = HxEmitter.EmitEnum(Fixture.FindEnum("Direction"));
         Assert.Contains("public static var North(get, never):Direction;", src);
         Assert.Contains("HlxRuntime.resolveStaticField(HlxRuntime.resolveType(\"Direction\"), \"North\")", src);
-        Assert.Contains("public inline function isNorth():Bool\n        return getIndex() == 0;", src);
+        Assert.Contains("public inline function isNorth():Bool\n        return getConstructorName() == \"North\";", src);
     }
 
     [Fact]
