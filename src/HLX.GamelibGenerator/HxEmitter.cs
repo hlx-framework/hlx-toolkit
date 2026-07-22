@@ -47,10 +47,14 @@ internal static class HxEmitter
         sb.Append($"abstract {c.ShortName}({c.ParentFullName}) from {c.ParentFullName} to {c.ParentFullName} {{\n");
     }
 
-    // Unlike every other accessor here, a constructor has no by-name reflective
-    // slot to resolve at runtime - the findex baked in below was recovered offline
-    // by ConstructorCollector's bytecode scan, and is more fragile across game
-    // recompiles than a name-resolved member.
+    // Unlike every other accessor here, a constructor has no by-name reflective slot on
+    // the type itself - HL's `New` opcode is bare allocation with no constructor
+    // reference. Resolution is still live, though: the native side eagerly scans the
+    // whole module once at load time for the same New+Call bytecode pattern
+    // ConstructorCollector recovers offline here, then disambiguates candidates for this
+    // class by matching the declared arg count passed below - so no bytecode index is
+    // ever baked into the emitted source (ctor.Findex is used only above, offline, to look
+    // up this constructor's declared signature/arity for the `new(a0:T0, ...)` below).
     private static void EmitConstructorFactory(StringBuilder sb, string ownerFullName, string shortName, GameConstructor? ctor, string indent)
     {
         if (ctor == null) return;
@@ -64,11 +68,11 @@ internal static class HxEmitter
         if (notes.Count > 0)
             sb.Append($"{indent}// {string.Join("; ", notes)}\n");
 
-        sb.Append($"{indent}// findex {ctor.Findex}: bytecode-recovered constructor, more version-fragile than\n");
-        sb.Append($"{indent}// this class's other members - regenerate this gamelib after any game update.\n");
+        sb.Append($"{indent}// Constructor resolved live at runtime (HlxRuntime.constructInstanceByName), not by\n");
+        sb.Append($"{indent}// a baked bytecode index - see that function's doc comment for how disambiguation works.\n");
         sb.Append($"{indent}public inline function new({paramList}) {{\n");
         sb.Append($"{indent}    var t = HlxRuntime.resolveType(\"{ownerFullName}\");\n");
-        sb.Append($"{indent}    this = HlxRuntime.constructInstance(t, {ctor.Findex}, [{argsArray}]);\n");
+        sb.Append($"{indent}    this = HlxRuntime.constructInstanceByName(t, {ctor.Params.Count}, [{argsArray}]);\n");
         sb.Append($"{indent}}}\n\n");
     }
 

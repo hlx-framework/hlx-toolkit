@@ -39,6 +39,13 @@ independently.
 
 ### [Unreleased]
 
+### [0.0.2] - 2026-07-22
+
+Closes the last two places a generated mod wrapper could break on a routine game update instead of a real API change.
+
+- Enum isXxx() checks no longer break when a game update reorders enum constructs
+- Generated constructors resolve live at runtime instead of a bytecode index baked in at generation time
+
 ### [0.0.1] - 2026-07-19
 
 - Initial release: offline CLI that reads a game's `hlboot.dat` and emits

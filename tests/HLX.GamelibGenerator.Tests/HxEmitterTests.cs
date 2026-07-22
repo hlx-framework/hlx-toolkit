@@ -23,12 +23,14 @@ public class HxEmitterTests
     }
 
     [Fact]
-    public void EmitClass_Widget_ConstructorFactory_BakesRealFindex()
+    public void EmitClass_Widget_ConstructorFactory_ResolvesLiveByDeclaredArgCount()
     {
         var w = Fixture.FindClass("Widget");
         var src = HxEmitter.EmitClass(w);
         Assert.Contains($"public inline function new(a0:Int, a1:String) {{", src);
-        Assert.Contains($"this = HlxRuntime.constructInstance(t, {w.Constructor!.Findex}, [a0, a1]);", src);
+        Assert.Contains($"this = HlxRuntime.constructInstanceByName(t, {w.Constructor!.Params.Count}, [a0, a1]);", src);
+        // No bytecode-index constant baked in anywhere - live resolution only.
+        Assert.DoesNotContain($"HlxRuntime.constructInstance(t,", src);
     }
 
     [Fact]
