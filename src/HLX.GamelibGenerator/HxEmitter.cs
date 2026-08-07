@@ -188,6 +188,18 @@ internal static class HxEmitter
         sb.Append(package.Length == 0 ? "package;\n\n" : $"package {package};\n\n");
     }
 
+    // A native abstract (hl.Abstract<"name">) read back via reflection (resolveField/
+    // resolveMember+callResolved) arrives as Dynamic carrying a DIFFERENT compiled module's
+    // abs_name pointer than this wrapper's own - a plain `return` here would compile clean and
+    // throw at runtime (HashLink's hl_same_type compares abstracts by abs_name POINTER
+    // identity, not name content - see HlxRuntime.resolveAbstract's own doc comment for the
+    // full mechanism and why a generic native call can't just fix this once, globally). Routing
+    // the read through resolveAbstract instead makes the cast succeed by matching the name's
+    // STRING content and re-boxing under this module's own type. Only applies to reads: a
+    // setter/argument autoboxes an already-concrete value INTO Dynamic, which never needs this.
+    private static string WrapAbstractRead(MappedType type, string rawExpr) =>
+        type.IsNativeAbstract ? $"HlxRuntime.resolveAbstract({rawExpr}, (null : {type.HaxeType}))" : rawExpr;
+
     private static void EmitImports(StringBuilder sb, bool needsResolvedMember)
     {
         // HlxRuntime is root-package (no import needed); ResolvedMember lives under hlx.runtime.
@@ -219,13 +231,13 @@ internal static class HxEmitter
                 sb.Append($"{indent}function get_{f.Name}():{f.Type.HaxeType} {{\n");
                 sb.Append($"{indent}    if ({cacheVar} == null)\n");
                 sb.Append($"{indent}        {cacheVar} = HlxRuntime.resolveMember(HlxRuntime.resolveType(\"{ownerFullName}\"), \"get_{f.Name}\");\n");
-                sb.Append($"{indent}    return HlxRuntime.callResolved({cacheVar}, [this]);\n");
+                sb.Append($"{indent}    return {WrapAbstractRead(f.Type, $"HlxRuntime.callResolved({cacheVar}, [this])")};\n");
                 sb.Append($"{indent}}}\n");
             }
             else
             {
                 sb.Append($"{indent}inline function get_{f.Name}():{f.Type.HaxeType}\n");
-                sb.Append($"{indent}    return HlxRuntime.resolveField(this, \"{f.Name}\");\n");
+                sb.Append($"{indent}    return {WrapAbstractRead(f.Type, $"HlxRuntime.resolveField(this, \"{f.Name}\")")};\n");
             }
 
             if (f.HasRealSetter)
@@ -265,13 +277,13 @@ internal static class HxEmitter
                 sb.Append($"{indent}static function get_{f.Name}():{f.Type.HaxeType} {{\n");
                 sb.Append($"{indent}    if ({cacheVar} == null)\n");
                 sb.Append($"{indent}        {cacheVar} = HlxRuntime.resolveStaticMember(HlxRuntime.resolveType(\"{ownerFullName}\"), \"get_{f.Name}\");\n");
-                sb.Append($"{indent}    return HlxRuntime.callResolved({cacheVar}, []);\n");
+                sb.Append($"{indent}    return {WrapAbstractRead(f.Type, $"HlxRuntime.callResolved({cacheVar}, [])")};\n");
                 sb.Append($"{indent}}}\n");
             }
             else
             {
                 sb.Append($"{indent}static inline function get_{f.Name}():{f.Type.HaxeType}\n");
-                sb.Append($"{indent}    return HlxRuntime.resolveStaticField(HlxRuntime.resolveType(\"{ownerFullName}\"), \"{f.Name}\");\n");
+                sb.Append($"{indent}    return {WrapAbstractRead(f.Type, $"HlxRuntime.resolveStaticField(HlxRuntime.resolveType(\"{ownerFullName}\"), \"{f.Name}\")")};\n");
             }
 
             if (f.HasRealSetter)
@@ -321,7 +333,7 @@ internal static class HxEmitter
             sb.Append($"{indent}        {cacheVar} = HlxRuntime.{resolveCall}(HlxRuntime.resolveType(\"{ownerFullName}\"), \"{m.Name}\");\n");
             sb.Append(isVoid
                 ? $"{indent}    HlxRuntime.callResolved({cacheVar}, [{argsForCall}]);\n"
-                : $"{indent}    return HlxRuntime.callResolved({cacheVar}, [{argsForCall}]);\n");
+                : $"{indent}    return {WrapAbstractRead(m.Return, $"HlxRuntime.callResolved({cacheVar}, [{argsForCall}])")};\n");
             sb.Append($"{indent}}}\n\n");
         }
     }

@@ -39,6 +39,19 @@ independently.
 
 ### [Unreleased]
 
+### [0.0.3] - 2026-08-07
+
+Closes the two remaining places a generated field/return silently erased to `Dynamic` even
+though a precise, cross-module-safe Haxe type was available.
+
+- `hl.types.ArrayObj`-backed fields/returns now map to `hl.types.ArrayBase` (typed `.length`/
+  `.getDyn(i)` access) instead of the incorrect `Array<Dynamic>` fallback, which crashed at
+  runtime the moment a mod actually read the value (`hl.types.ArrayDyn`, the genuinely
+  boxed-`Dynamic`-backed array kind, is unaffected and still maps to `Array<Dynamic>`)
+- Native abstract types (`dx_device`, `dx_resource`, ...) now map to a real `hl.Abstract<"name">`
+  instead of falling back to `Dynamic` - every generated reflective read of one is routed through
+  `HlxRuntime.resolveAbstract` so the cross-module cast succeeds
+
 ### [0.0.2] - 2026-07-22
 
 Closes the last two places a generated mod wrapper could break on a routine game update instead of a real API change.

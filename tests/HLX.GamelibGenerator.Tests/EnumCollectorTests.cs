@@ -58,12 +58,18 @@ public class EnumCollectorTests
     }
 
     [Fact]
-    public void GameEvent_ArrayParam_ResolvesToParameterizedArray()
+    public void GameEvent_ArrayParam_ArrayOfStringIsBackedByArrayObj_ErasesToArrayBase()
     {
+        // Array<String> compiles to hl.types.ArrayObj (concrete, non-Dynamic elements), not
+        // hl.types.ArrayDyn - the real element type is erased at this level (HL shares one
+        // native array class per storage kind, not per element type), so this is honestly
+        // hl.types.ArrayBase (cross-module-safe, gives .length/.getDyn(i)) with a fallback
+        // reason rather than a false-precision Array<Dynamic>.
         var e = Fixture.FindEnum("GameEvent");
         var c = e.Constructors.Single(x => x.Name == "ItemsCollected");
         var param = Assert.Single(c.ParamTypes);
-        Assert.Equal("Array<Dynamic>", param.HaxeType);
+        Assert.Equal("hl.types.ArrayBase", param.HaxeType);
+        Assert.NotNull(param.FallbackReason);
     }
 
     [Fact]

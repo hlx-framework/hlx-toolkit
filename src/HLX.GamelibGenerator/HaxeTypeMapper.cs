@@ -64,7 +64,7 @@ internal sealed class HaxeTypeMapper(
         PrimitiveType p => MapPrimitive(p.Kind),
         ObjectType o => MapObjectType(o),
         EnumType e => MapEnumType(e),
-        AbstractType a => MapNamedFallback(a.Name, "abstract"),
+        AbstractType a => MapAbstractType(a),
         VirtualType v => MapVirtualType(v, visiting, depth),
         FunctionType f => MapFunctionType(f, visiting, depth),
         ReferenceType r => MapReferenceType(r, visiting, depth),
@@ -170,9 +170,41 @@ internal sealed class HaxeTypeMapper(
     {
         var name = o.Name;
 
-        // hl.types.* specializations backing an ordinary Haxe Array<T>.
-        if (name is "hl.types.ArrayObj" or "hl.types.ArrayDyn")
+        // hl.types.ArrayDyn is genuinely backed by boxed Dynamic elements - Array<Dynamic>
+        // is an exact match.
+        if (name is "hl.types.ArrayDyn")
             return new MappedType("Array<Dynamic>", null);
+        // hl.types.ArrayObj is backed by concrete, non-Dynamic elements, but HL shares one
+        // native array class per storage kind rather than one per element type, so the real
+        // element type is erased by the time it reaches here - mapping it to Array<Dynamic>
+        // would declare a type the runtime value doesn't actually have (ArrayDyn), which
+        // trips Haxe's implicit checked cast at every read.
+        //
+        // hl.types.ArrayBase (ArrayObj's own superclass, plain non-generic Haxe source under
+        // hl's std lib, @:keep-annotated) is a SAFE, more precise replacement for Dynamic here
+        // - confirmed empirically, not just by source-reading: HashLink's own mod-loading path
+        // (hl_sys_load_plugin -> src/main.c's load_plugin, which is exactly what hlx-loader's
+        // Native.loadMod calls per mod) walks every HOBJ/HSTRUCT type in the freshly-loaded
+        // module and, for each one that resolves by name AND passes a structural check
+        // (hl_module_resolve_type/check_same_obj in src/module.c - same nfields/nproto/hashed
+        // names/field types) against the host game's own module, ALIASES the mod's copy's type-
+        // name pointer to literally equal the game's copy's pointer. That's what
+        // hl_dyn_castp's HOBJ,HOBJ branch (src/std/cast.c) checks by identity, so after this
+        // patch a cross-module cast to ArrayBase succeeds. ArrayBase's @:keep annotation is
+        // what makes the structural check reliable regardless of which of its methods either
+        // side's DCE pass happens to use - unlike an ordinary (non-@:keep) std class such as
+        // haxe.ds.StringMap, whose cross-module casts stay broken because DCE strips a
+        // different method set per project, and unlike HABSTRACT (e.g. dx_resource), which
+        // load_plugin's patch loop skips entirely by kind. Verified live: a minimal two-module
+        // hl 1.16.0 repro (independently-compiled "game" module with a real Array<String>
+        // field, "mod" module casting the Dynamic value to hl.types.ArrayBase) reads
+        // .length/.getDyn(i) successfully when loaded through this same mechanism, and fails
+        // with "Can't cast hl.types.ArrayObj to hl.types.ArrayBase" only when the patch step is
+        // skipped. `[]`/`Iterator` are NOT safe (still generic-erased/not what ArrayBase
+        // exposes) - use `.length` and `.getDyn(i):Dynamic` only.
+        if (name is "hl.types.ArrayObj")
+            return new MappedType("hl.types.ArrayBase",
+                "backed by hl.types.ArrayObj - concrete element type is erased by HL's own Array<T> codegen (one shared native class per storage kind, not per element type); hl.types.ArrayBase is cross-module-safe (see comment above) and gives typed access to .length/.getDyn(i):Dynamic, but not [] or an element-typed Iterator");
         if (name.StartsWith("hl.types.ArrayBytes_", StringComparison.Ordinal))
         {
             var suffix = name["hl.types.ArrayBytes_".Length..];
@@ -248,15 +280,21 @@ internal sealed class HaxeTypeMapper(
         return new MappedType("Dynamic", $"'{name}' (enum) not generated (excluded, invalid identifier, or filtered out)");
     }
 
-    private static MappedType MapNamedFallback(string name, string kindLabel)
+    // hl.Abstract<"name"> is a real Haxe HL stdlib type (std/hl/Abstract.hx) - the string is a
+    // literal, not a dotted type path, so unlike MapObjectType/MapEnumType there's no
+    // LooksLikeValidHaxeTypePath-shaped check to pass: any native abstract name works. Still
+    // erased to Dynamic for the same two reasons a dotted name would be: an unreferenceable
+    // (private/nested) segment can't happen for a flat native name in practice, but is checked
+    // for consistency with every other MapCore branch; a third-party native ABI name (e.g.
+    // FMOD) has no first-party stability guarantee this generator's output should rely on.
+    private static MappedType MapAbstractType(AbstractType a)
     {
+        var name = a.Name;
         if (Naming.HasUnreferenceableSegment(name))
-            return new MappedType("Dynamic", $"'{name}' is a private/nested {kindLabel} type");
+            return new MappedType("Dynamic", $"'{name}' is a private/nested abstract type");
         if (Naming.IsThirdPartyNativeAbiName(name))
             return new MappedType("Dynamic", $"'{name}' is a third-party native ABI type (e.g. FMOD) with no Haxe declaration this generator's output can rely on");
-        return Naming.LooksLikeValidHaxeTypePath(name)
-            ? new MappedType(name, null)
-            : new MappedType("Dynamic", $"'{name}' ({kindLabel}) is a native/internal name, not a directly referenceable Haxe type");
+        return new MappedType($"hl.Abstract<\"{name}\">", null, IsNativeAbstract: true);
     }
 
     private MappedType MapFunctionType(FunctionType f, HashSet<int> visiting, int depth)

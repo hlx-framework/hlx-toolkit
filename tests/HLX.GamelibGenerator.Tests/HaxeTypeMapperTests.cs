@@ -209,22 +209,29 @@ public class HaxeTypeMapperTests
     [Theory]
     [InlineData("_Main.Local")]  // leading-underscore segment - unreferenceable
     [InlineData("pkg.$Companion")] // "$" segment - unreferenceable
-    [InlineData("hl_random")]    // not unreferenceable, but not a valid Haxe path either (lowercase leading char)
-    public void Map_AbstractType_UnreferenceableOrInvalid_FallsBackToDynamic(string name)
+    public void Map_AbstractType_UnreferenceableSegment_FallsBackToDynamic(string name)
     {
         var mapper = MakeMapper([]);
         var result = mapper.Map(new AbstractType(name));
         Assert.Equal("Dynamic", result.HaxeType);
         Assert.NotNull(result.FallbackReason);
+        Assert.False(result.IsNativeAbstract);
     }
 
-    [Fact]
-    public void Map_AbstractType_ValidReferenceablePath_IsUsedDirectly()
+    // hl.Abstract<"name"> takes a string literal, not a dotted type path - so unlike
+    // MapObjectType/MapEnumType, a name that doesn't "look like" a valid Haxe path (lowercase
+    // leading char, underscores, ...) is still a perfectly usable abstract name.
+    [Theory]
+    [InlineData("hl_random")]
+    [InlineData("dx_device")]
+    [InlineData("hxsl.Type")] // dotted-looking names are just as valid a string literal as any other
+    public void Map_AbstractType_ValidName_MapsToHlAbstract(string name)
     {
         var mapper = MakeMapper([]);
-        var result = mapper.Map(new AbstractType("hxsl.Type"));
-        Assert.Equal("hxsl.Type", result.HaxeType);
+        var result = mapper.Map(new AbstractType(name));
+        Assert.Equal($"hl.Abstract<\"{name}\">", result.HaxeType);
         Assert.Null(result.FallbackReason);
+        Assert.True(result.IsNativeAbstract);
     }
 
     [Theory]
@@ -292,11 +299,30 @@ public class HaxeTypeMapperTests
     }
 
     [Fact]
-    public void MapObjectType_ArrayObjAndArrayDyn_MapToArrayDynamic()
+    public void MapObjectType_ArrayDyn_MapsToArrayDynamic()
     {
         var mapper = MakeMapper([]);
-        Assert.Equal("Array<Dynamic>", mapper.Map(new ObjectType("hl.types.ArrayObj", null, 0, [], [], [])).HaxeType);
-        Assert.Equal("Array<Dynamic>", mapper.Map(new ObjectType("hl.types.ArrayDyn", null, 0, [], [], [])).HaxeType);
+        var result = mapper.Map(new ObjectType("hl.types.ArrayDyn", null, 0, [], [], []));
+        Assert.Equal("Array<Dynamic>", result.HaxeType);
+        Assert.Null(result.FallbackReason);
+    }
+
+    [Fact]
+    public void MapObjectType_ArrayObj_MapsToArrayBaseWithReason()
+    {
+        // ArrayObj's concrete element type is erased by HL's own codegen (one shared native
+        // class per storage kind) - unlike ArrayDyn it is NOT boxed-Dynamic-backed, so it must
+        // not be declared Array<Dynamic>: that would trip Haxe's implicit checked cast at every
+        // read against a real ArrayObj value ("Can't cast hl.types.ArrayObj to hl.types.ArrayDyn").
+        // hl.types.ArrayBase (ArrayObj's own @:keep-annotated superclass) IS a cross-module-safe
+        // declared type though - confirmed both by reading HashLink's load_plugin/
+        // hl_module_resolve_type type-patching mechanism (src/module.c, src/std/cast.c) and by
+        // an actual two-module hl 1.16.0 repro (see HaxeTypeMapper.cs's MapObjectType comment) -
+        // so it replaces the old plain-Dynamic fallback and gives typed .length/.getDyn(i) access.
+        var mapper = MakeMapper([]);
+        var result = mapper.Map(new ObjectType("hl.types.ArrayObj", null, 0, [], [], []));
+        Assert.Equal("hl.types.ArrayBase", result.HaxeType);
+        Assert.NotNull(result.FallbackReason);
     }
 
     [Fact]

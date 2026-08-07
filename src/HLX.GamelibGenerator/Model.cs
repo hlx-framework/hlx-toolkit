@@ -2,7 +2,16 @@ namespace HLX.GamelibGenerator;
 
 // Type string to emit, plus (on a Dynamic fallback) a reason surfaced as a trailing
 // comment so "erased on purpose" is distinguishable from "generator gave up".
-internal readonly record struct MappedType(string HaxeType, string? FallbackReason)
+//
+// IsNativeAbstract flags a real hl.Abstract<"name"> (see HaxeTypeMapper's AbstractType
+// case) - a Dynamic value carrying this kind can't be cast to it directly across compiled
+// modules (HashLink's hl_same_type compares abstracts by abs_name POINTER identity, which
+// two independently-compiled modules never share even for the same name - see
+// HlxRuntime.resolveAbstract's own comment for the full mechanism). HxEmitter checks this
+// flag to route every read of such a field/return through HlxRuntime.resolveAbstract
+// instead of a raw reflection return, which would otherwise compile clean and crash at
+// first access.
+internal readonly record struct MappedType(string HaxeType, string? FallbackReason, bool IsNativeAbstract = false)
 {
     public static implicit operator string(MappedType m) => m.HaxeType;
 }
