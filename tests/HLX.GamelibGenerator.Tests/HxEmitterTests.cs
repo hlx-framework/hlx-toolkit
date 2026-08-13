@@ -102,8 +102,7 @@ public class HxEmitterTests
     {
         var src = HxEmitter.EmitEnum(Fixture.FindEnum("GameEvent"));
         Assert.Contains("public static function ScoreChanged(a0:Int, a1:String):GameEvent {", src);
-        Assert.Contains("HlxRuntime.resolveStaticMember(HlxRuntime.resolveType(\"GameEvent\"), \"ScoreChanged\")", src);
-        Assert.Contains("HlxRuntime.callResolved(__hlxEnumCtor_ScoreChanged, [a0, a1]);", src);
+        Assert.Contains("HlxRuntime.constructEnum(HlxRuntime.resolveType(\"GameEvent\"), \"ScoreChanged\", [a0, a1]);", src);
     }
 
     [Fact]

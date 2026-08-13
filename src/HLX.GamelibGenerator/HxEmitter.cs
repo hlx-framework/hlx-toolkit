@@ -86,10 +86,7 @@ internal static class HxEmitter
         var sb = new StringBuilder();
         sb.Append(Header);
         EmitPackage(sb, e.Package);
-        // Only param-taking constructors below need ResolvedMember (0-arg ones read a
-        // plain static field, no caching involved - see the branch below for why).
-        var needsResolvedMember = e.Constructors.Any(c => c.ParamTypes.Count > 0);
-        EmitImports(sb, needsResolvedMember: needsResolvedMember);
+        EmitImports(sb, needsResolvedMember: false);
         EmitNotes(sb, e.Notes);
         sb.Append(
             $"// Reflection-based wrapper for the real HL enum '{e.FullName}' - not a real\n" +
@@ -130,10 +127,14 @@ internal static class HxEmitter
             }
             else
             {
-                // Mirrors EmitMethods' own IsStatic=true branch exactly.
+                // An enum constructor with params has no companion-class static method to
+                // resolve (hl_type_enum carries no function pointers at all - HL builds these
+                // values purely from layout data via hl_alloc_enum/hl_write_dyn, the same
+                // primitives std.Type.createEnum itself uses) - resolveStaticMember/callResolved
+                // is the wrong tool here (that pair is for real HOBJ companion-class statics).
+                // constructEnum goes straight to hlx-boot's own by-name enum allocator instead.
                 var paramList = string.Join(", ", c.ParamTypes.Select((p, i) => $"a{i}:{p.HaxeType}"));
                 var argsForCall = string.Join(", ", Enumerable.Range(0, c.ParamTypes.Count).Select(i => $"a{i}"));
-                var cacheVar = "__hlxEnumCtor_" + c.Name;
 
                 var notes = c.ParamTypes.Select((p, i) => (Label: $"arg{i}", p.FallbackReason))
                     .Where(x => x.FallbackReason != null)
@@ -142,11 +143,8 @@ internal static class HxEmitter
                 if (notes.Count > 0)
                     sb.Append($"    // {string.Join("; ", notes)}\n");
 
-                sb.Append($"    static var {cacheVar}:ResolvedMember;\n");
                 sb.Append($"    public static function {c.Name}({paramList}):{e.ShortName} {{\n");
-                sb.Append($"        if ({cacheVar} == null)\n");
-                sb.Append($"            {cacheVar} = HlxRuntime.resolveStaticMember(HlxRuntime.resolveType(\"{runtimeName}\"), \"{c.Name}\");\n");
-                sb.Append($"        return HlxRuntime.callResolved({cacheVar}, [{argsForCall}]);\n");
+                sb.Append($"        return HlxRuntime.constructEnum(HlxRuntime.resolveType(\"{runtimeName}\"), \"{c.Name}\", [{argsForCall}]);\n");
                 sb.Append("    }\n\n");
             }
         }

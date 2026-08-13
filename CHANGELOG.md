@@ -39,6 +39,15 @@ independently.
 
 ### [Unreleased]
 
+### [0.0.4] - 2026-08-14
+
+Fixes generated enum constructors with params calling the wrong runtime resolution path.
+
+- Enum constructors with params now call `HlxRuntime.constructEnum` instead of resolving/
+  invoking a companion-class static method - enums have no such method to resolve (`hl_type_enum`
+  carries no function pointers; HL builds these values from layout data alone), so the old path
+  was silently wrong for every param-taking enum constructor
+
 ### [0.0.3] - 2026-08-07
 
 Closes the two remaining places a generated field/return silently erased to `Dynamic` even
