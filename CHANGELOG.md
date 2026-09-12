@@ -20,6 +20,14 @@ independently.
 
 ### [Unreleased]
 
+### [0.0.2] - 2026-09-13
+
+Support HashLink 2.0 bytecode (version 6) alongside the existing 1.16 (version 4) support
+
+- `HLX.Core`'s bytecode reader (`HlReader.cs`) now accepts bytecode version 6, previously capped
+  at 5, and reads the extra per-assign debug field HashLink 2.0 added - without it, every function
+  parsed after the first one with a debug-assigned local would desync and read as garbage
+
 ### [0.0.1] - 2026-07-19
 
 - Initial release: Avalonia desktop GUI for browsing HashLink bytecode - tree
@@ -30,6 +38,14 @@ independently.
 
 ### [Unreleased]
 
+### [0.0.2] - 2026-09-13
+
+Support HashLink 2.0 bytecode (version 6) alongside the existing 1.16 (version 4) support
+
+- `HLX.Core`'s bytecode reader (`HlReader.cs`) now accepts bytecode version 6, previously capped
+  at 5, and reads the extra per-assign debug field HashLink 2.0 added - without it, every function
+  parsed after the first one with a debug-assigned local would desync and read as garbage
+
 ### [0.0.1] - 2026-07-19
 
 - Initial release: scriptable CLI inspector for HashLink bytecode - dumps
@@ -38,6 +54,14 @@ independently.
 ## HLX.GamelibGenerator
 
 ### [Unreleased]
+
+### [0.0.5] - 2026-09-13
+
+Support HashLink 2.0 bytecode (version 6) alongside the existing 1.16 (version 4) support
+
+- `HLX.Core`'s bytecode reader (`HlReader.cs`) now accepts bytecode version 6, previously capped
+  at 5, and reads the extra per-assign debug field HashLink 2.0 added - without it, every function
+  parsed after the first one with a debug-assigned local would desync and read as garbage
 
 ### [0.0.4] - 2026-08-14
 

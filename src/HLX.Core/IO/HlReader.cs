@@ -104,8 +104,8 @@ internal sealed class HlBinaryReader(Stream stream)
             throw new InvalidDataException("Not a HashLink bytecode file (bad magic).");
 
         int version = ReadByte();
-        if (version < 2 || version > 5)
-            throw new InvalidDataException($"Unsupported bytecode version {version} (supported: 2–5).");
+        if (version < 2 || version > 6)
+            throw new InvalidDataException($"Unsupported bytecode version {version} (supported: 2–6).");
 
         int flags      = ReadUIndex();
         int nints      = ReadUIndex();
@@ -320,7 +320,12 @@ internal sealed class HlBinaryReader(Stream stream)
             if (version >= 3)
             {
                 int nassigns = ReadUIndex();
-                for (int i = 0; i < nassigns; i++) { ReadUIndex(); ReadIndex(); }
+                for (int i = 0; i < nassigns; i++)
+                {
+                    ReadUIndex();
+                    ReadIndex();
+                    if (version >= 6) ReadIndex();
+                }
             }
         }
 
